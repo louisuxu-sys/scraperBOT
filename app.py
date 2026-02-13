@@ -61,6 +61,15 @@ SPORT_KEYWORDS = {
     '網球': 'tennis',
 }
 
+# 運動類型顯示設定
+SPORT_OPTIONS = [
+    {'key': 'basketball', 'name': '籃球', 'emoji': '🏀'},
+    {'key': 'baseball',   'name': '棒球', 'emoji': '⚾'},
+    {'key': 'soccer',     'name': '足球', 'emoji': '⚽'},
+    {'key': 'hockey',     'name': '冰球', 'emoji': '🏒'},
+    {'key': 'tennis',     'name': '網球', 'emoji': '🎾'},
+]
+
 # 快取（避免頻繁爬取）
 _cache = {}
 CACHE_TTL = 120  # 秒
@@ -98,6 +107,12 @@ def parse_user_message(text):
         code = text.replace('儲值序號', '').replace('儲值', '').strip()
         return 'redeem', None, 0, code or None
 
+    # 今日賽事 / 明日賽事：觸發運動選單
+    if text in ('今日賽事', '賽事', '今天'):
+        return 'select_sport', None, 0, None
+    if text in ('明日賽事',):
+        return 'select_sport', None, 1, None
+
     # 日期偏移
     date_offset = 0
     if '昨天' in text or '昨日' in text:
@@ -117,7 +132,7 @@ def parse_user_message(text):
 
     # 比分指令
     if text in ('比分', '即時比分', 'score', 'scores', '今日比分'):
-        return 'list', 'basketball', date_offset, None
+        return 'select_sport', None, 0, None
 
     # 運動類型
     for kw, sport in SPORT_KEYWORDS.items():
@@ -301,6 +316,48 @@ def health():
     return {'status': 'ok', 'service': 'sportiq-linebot'}
 
 
+def build_default_qr():
+    """預設的固定 Quick Reply 按鈕"""
+    return [
+        QuickReplyItem(action=MessageAction(label='🏆 今日賽事', text='今日賽事')),
+        QuickReplyItem(action=MessageAction(label='📅 明日賽事', text='明日賽事')),
+        QuickReplyItem(action=MessageAction(label='🔍 查詢到期', text='查詢到期')),
+        QuickReplyItem(action=MessageAction(label='💰 儲值序號', text='儲值序號')),
+    ]
+
+
+def build_sport_select_qr(date_offset=0):
+    """運動選擇 Quick Reply 按鈕"""
+    prefix = '' if date_offset == 0 else '明天 ' if date_offset == 1 else f'offset{date_offset} '
+    items = []
+    for s in SPORT_OPTIONS:
+        label = f'{s["emoji"]} {s["name"]}'
+        cmd = f'{prefix}{s["name"]}' if prefix else s['name']
+        items.append(QuickReplyItem(action=MessageAction(label=label, text=cmd.strip())))
+    items.extend([
+        QuickReplyItem(action=MessageAction(label='🔍 查詢到期', text='查詢到期')),
+        QuickReplyItem(action=MessageAction(label='💰 儲值序號', text='儲值序號')),
+    ])
+    return items
+
+
+def build_game_qr(game_list):
+    """賽事列表的 Quick Reply：每場比賽的分析按鈕 + 固定按鈕"""
+    game_buttons = []
+    seen = set()
+    for g in game_list:
+        home = g.get('home', '')
+        if home and home != '—' and home not in seen:
+            label = f'⚡ {home[:8]}' if len(home) > 8 else f'⚡ {home}'
+            game_buttons.append(
+                QuickReplyItem(action=MessageAction(label=label, text=f'分析 {home}'))
+            )
+            seen.add(home)
+        if len(game_buttons) >= 9:
+            break
+    return game_buttons + build_default_qr()
+
+
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
     """處理使用者訊息"""
@@ -308,10 +365,24 @@ def handle_message(event):
     action, sport, date_offset, keyword = parse_user_message(text)
 
     game_list = []
+    qr_items = build_default_qr()
+
     if action == 'help':
         reply = build_help_message()
+    elif action == 'select_sport':
+        display_date = get_display_date(date_offset)
+        reply = (
+            f'🏆 請選擇運動類型\n'
+            f'📅 {display_date}\n'
+            f'━━━━━━━━━━━━━━━\n'
+            f'\n'
+            f'點擊下方按鈕選擇想查看的運動：'
+        )
+        qr_items = build_sport_select_qr(date_offset)
     elif action == 'list':
         reply, game_list = handle_list(sport or 'basketball', date_offset)
+        if game_list:
+            qr_items = build_game_qr(game_list)
     elif action == 'analysis':
         reply = handle_analysis(sport, date_offset, keyword)
     elif action == 'check_expiry':
@@ -325,41 +396,7 @@ def handle_message(event):
     if len(reply) > 5000:
         reply = reply[:4950] + '\n\n... (訊息過長，已截斷)'
 
-    # Quick Reply 按鈕：固定按鈕
-    qr_items = [
-        QuickReplyItem(
-            action=MessageAction(label='📊 今日賽事', text='籃球')
-        ),
-        QuickReplyItem(
-            action=MessageAction(label='📅 明日賽事', text='明天 籃球')
-        ),
-        QuickReplyItem(
-            action=MessageAction(label='🔍 查詢到期', text='查詢到期')
-        ),
-        QuickReplyItem(
-            action=MessageAction(label='💰 儲值序號', text='儲值序號')
-        ),
-    ]
-
-    # 賽事列表模式：為每場比賽加上「分析」按鈕（Quick Reply 上限 13 個）
-    if game_list:
-        game_buttons = []
-        seen = set()
-        for g in game_list:
-            home = g.get('home', '')
-            if home and home != '—' and home not in seen:
-                label = f'⚡ {home[:8]}' if len(home) > 8 else f'⚡ {home}'
-                game_buttons.append(
-                    QuickReplyItem(
-                        action=MessageAction(label=label, text=f'分析 {home}')
-                    )
-                )
-                seen.add(home)
-            if len(game_buttons) >= 9:  # 留 4 個位置給固定按鈕
-                break
-        qr_items = game_buttons + qr_items
-
-    quick_reply = QuickReply(items=qr_items[:13])  # LINE 上限 13 個
+    quick_reply = QuickReply(items=qr_items[:13])
 
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
