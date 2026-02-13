@@ -194,7 +194,7 @@ def find_game_by_keyword(games, keyword):
 
 
 def handle_list(sport, date_offset):
-    """處理賽事列表請求"""
+    """處理賽事列表請求，回傳 (text, games)"""
     gamedate = get_date_str(date_offset)
     display_date = get_display_date(date_offset)
     games = get_games_cached(sport, gamedate)
@@ -202,9 +202,9 @@ def handle_list(sport, date_offset):
     if not games:
         sport_name = {'basketball': '籃球', 'baseball': '棒球', 'soccer': '足球',
                       'hockey': '冰球', 'tennis': '網球'}.get(sport, sport)
-        return f'📅 {display_date}\n\n{sport_name} 今日無賽事，請切換日期或運動類型。'
+        return f'📅 {display_date}\n\n{sport_name} 今日無賽事，請切換日期或運動類型。', []
 
-    return format_all_games_text(games, sport, display_date)
+    return format_all_games_text(games, sport, display_date), games
 
 
 def handle_analysis(sport, date_offset, keyword):
@@ -307,10 +307,11 @@ def handle_message(event):
     text = event.message.text.strip()
     action, sport, date_offset, keyword = parse_user_message(text)
 
+    game_list = []
     if action == 'help':
         reply = build_help_message()
     elif action == 'list':
-        reply = handle_list(sport or 'basketball', date_offset)
+        reply, game_list = handle_list(sport or 'basketball', date_offset)
     elif action == 'analysis':
         reply = handle_analysis(sport, date_offset, keyword)
     elif action == 'check_expiry':
@@ -324,8 +325,8 @@ def handle_message(event):
     if len(reply) > 5000:
         reply = reply[:4950] + '\n\n... (訊息過長，已截斷)'
 
-    # Quick Reply 按鈕
-    quick_reply = QuickReply(items=[
+    # Quick Reply 按鈕：固定按鈕
+    qr_items = [
         QuickReplyItem(
             action=MessageAction(label='📊 今日賽事', text='籃球')
         ),
@@ -338,7 +339,27 @@ def handle_message(event):
         QuickReplyItem(
             action=MessageAction(label='💰 儲值序號', text='儲值序號')
         ),
-    ])
+    ]
+
+    # 賽事列表模式：為每場比賽加上「分析」按鈕（Quick Reply 上限 13 個）
+    if game_list:
+        game_buttons = []
+        seen = set()
+        for g in game_list:
+            home = g.get('home', '')
+            if home and home != '—' and home not in seen:
+                label = f'⚡ {home[:8]}' if len(home) > 8 else f'⚡ {home}'
+                game_buttons.append(
+                    QuickReplyItem(
+                        action=MessageAction(label=label, text=f'分析 {home}')
+                    )
+                )
+                seen.add(home)
+            if len(game_buttons) >= 9:  # 留 4 個位置給固定按鈕
+                break
+        qr_items = game_buttons + qr_items
+
+    quick_reply = QuickReply(items=qr_items[:13])  # LINE 上限 13 個
 
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
