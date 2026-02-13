@@ -306,33 +306,36 @@ def format_game_text(game, sport='basketball'):
 
     # 盤口
     spread_text = ''
+    spread_fav = ''
     odds = game.get('odds', {})
     spread_str = odds.get('spread', '')
     try:
         spread = float(spread_str)
         if spread != 0:
-            fav = home if spread > 0 else away
-            spread_text = f'  讓分: {fav} 讓{abs(spread)}'
+            spread_fav = home if spread > 0 else away
+            spread_text = f'📌 推薦：{spread_fav} 讓{abs(spread)}'
     except (ValueError, TypeError):
         pass
 
+    # 推薦獲勝標記
+    win_mark = ''
+    if game.get('status') == 'finished' and game.get('homeScore') is not None and spread_fav:
+        hs = int(game['homeScore'])
+        a_s = int(game['awayScore'])
+        winner = home if hs > a_s else away
+        if winner == spread_fav:
+            win_mark = ' 🎯✔'
+
     lines = [
-        f'━━━━━━━━━━━━━━━',
+        f'━━━━━━━━━━━━━━━{win_mark}',
         f'{status}  {time_str}',
         f'🏠 {home}',
         f'🚌 {away}',
-        f'📊 {score}{spread_text}',
+        f'📊 {score}',
     ]
 
-    # 節比分
-    qs = game.get('quarterScores')
-    if qs and qs.get('home') and qs.get('away'):
-        q_labels = ['Q1', 'Q2', 'Q3', 'Q4', 'OT', 'OT2', 'OT3', 'OT4']
-        q_text = ' | '.join(
-            f'{q_labels[i] if i < len(q_labels) else f"Q{i+1}"}: {qs["home"][i]}-{qs["away"][i]}'
-            for i in range(min(len(qs['home']), len(qs['away'])))
-        )
-        lines.append(f'📋 {q_text}')
+    if spread_text:
+        lines.append(spread_text)
 
     return '\n'.join(lines)
 
