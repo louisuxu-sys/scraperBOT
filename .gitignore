@@ -9,3 +9,5 @@ ENV/
 *.log
 .DS_Store
 Thumbs.db
+firebase-key.json
+data.json
