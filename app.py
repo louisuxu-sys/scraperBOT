@@ -83,6 +83,9 @@ CACHE_TTL = 120  # 秒
 # 用戶 session：記住每個用戶目前瀏覽的日期偏移和運動類型
 _user_session = {}  # uid -> {'date_offset': int, 'sport': str}
 
+# 用戶等待輸入序號狀態
+_user_waiting_redeem = set()  # uid set
+
 
 def get_games_cached(sport, gamedate):
     """帶快取的資料取得"""
@@ -132,9 +135,11 @@ def parse_user_message(raw_text):
         return 'check_expiry', None, 0, None
 
     # 儲值序號
-    if text.startswith('儲值序號') or text == '儲值':
-        code = raw.replace('儲值序號', '').replace('儲值', '').strip()
+    if text.startswith('儲值序號'):
+        code = raw[4:].strip()
         return 'redeem', None, 0, code or None
+    if text == '儲值':
+        return 'redeem', None, 0, None
 
     # 主選單
     if text in ('主選單', '選單', '返回', '返回主選單'):
@@ -328,8 +333,8 @@ def handle_check_expiry(user_id):
         '╰────────────────╯\n'
         '\n'
         '⚠️ 尚未開通會員資格\n\n'
-        '▸ 請輸入「儲值序號 你的序號」\n'
-        '  來開通或續費會員。'
+        '▸ 請點擊「💰 儲值序號」按鈕\n'
+        '  輸入序號來開通會員。'
     )
 
 
@@ -341,11 +346,9 @@ def handle_redeem(user_id, code):
             '│  💰 儲值序號            │\n'
             '╰────────────────╯\n'
             '\n'
-            '請輸入您的儲值序號：\n\n'
-            '▸ 格式\n'
-            '  儲值序號 XXXX-XXXX-XXXX\n\n'
-            '▸ 範例\n'
-            '  儲值序號 AB12-CD34-EF56'
+            '請直接貼上您的序號：\n\n'
+            '▸ 格式：XXXX-XXXX-XXXX\n'
+            '▸ 範例：AB12-CD34-EF56'
         )
 
     success, msg = redeem_code(user_id, code)
@@ -550,7 +553,17 @@ def handle_message(event):
     """處理使用者訊息"""
     text = event.message.text.strip()
     uid = event.source.user_id
-    action, sport, date_offset, keyword = parse_user_message(text)
+
+    # 如果用戶正在等待輸入序號，把整段訊息當作序號
+    if uid in _user_waiting_redeem:
+        _user_waiting_redeem.discard(uid)
+        # 如果輸入的是其他指令，先檢查是否像序號格式
+        if len(text) >= 6 and not text.startswith(('主選單', '選單', '返回', 'help', '幫助', '說明', '查詢', '儲值', '今日', '明日', '籃球', '棒球', '足球', '分析')):
+            action, sport, date_offset, keyword = 'redeem', None, 0, text
+        else:
+            action, sport, date_offset, keyword = parse_user_message(text)
+    else:
+        action, sport, date_offset, keyword = parse_user_message(text)
 
     game_list = []
     qr_items = build_main_menu_qr()  # 預設回到第一層
@@ -578,6 +591,8 @@ def handle_message(event):
     elif action == 'check_expiry':
         reply = handle_check_expiry(uid)
     elif action == 'redeem':
+        if not keyword:
+            _user_waiting_redeem.add(uid)
         reply = handle_redeem(uid, keyword)
 
     # 需要會員的指令
