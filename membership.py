@@ -15,6 +15,9 @@ TW_TZ = timezone(timedelta(hours=8))
 # 資料檔案路徑
 DATA_FILE = os.path.join(os.path.dirname(__file__), 'data.json')
 
+# 永久管理員（從環境變數讀取，不會因 Render 重新部署而遺失）
+_ENV_ADMINS = [uid.strip() for uid in os.environ.get('ADMIN_UIDS', '').split(',') if uid.strip()]
+
 # 序號有效期限選項（分鐘）
 DURATION_OPTIONS = {
     '30分鐘': 30,
@@ -59,7 +62,9 @@ def _save_data(data):
 # ===== 管理員 =====
 
 def is_admin(uid):
-    """檢查是否為管理員"""
+    """檢查是否為管理員（環境變數 + data.json）"""
+    if uid in _ENV_ADMINS:
+        return True
     data = _load_data()
     return uid in data['admins']
 
@@ -75,7 +80,9 @@ def add_admin(uid):
 
 
 def remove_admin(uid):
-    """移除管理員"""
+    """移除管理員（環境變數管理員無法移除）"""
+    if uid in _ENV_ADMINS:
+        return False  # 環境變數管理員不可移除
     data = _load_data()
     if uid in data['admins']:
         data['admins'].remove(uid)
@@ -85,9 +92,10 @@ def remove_admin(uid):
 
 
 def get_admin_list():
-    """取得管理員列表"""
+    """取得全部管理員列表（環境變數 + data.json）"""
     data = _load_data()
-    return data['admins']
+    all_admins = list(set(_ENV_ADMINS + data['admins']))
+    return all_admins
 
 
 # ===== 序號 =====
