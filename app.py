@@ -35,6 +35,12 @@ from analyzer import (
     format_game_text,
     generate_analysis,
 )
+from membership import (
+    is_admin, add_admin, remove_admin,
+    generate_code, redeem_code,
+    is_member_active, get_member_expiry,
+    DURATION_OPTIONS,
+)
 
 # ===== 設定 =====
 app = Flask(__name__)
@@ -87,15 +93,35 @@ def get_games_cached(sport, gamedate):
     return games
 
 
-def parse_user_message(text):
+def parse_user_message(raw_text):
     """
     解析使用者訊息，回傳 (action, sport, date_offset, keyword)
-    action: 'list' | 'analysis' | 'help'
+    action: 'list' | 'analysis' | 'help' | 'query_uid' | 'set_admin' | 'gen_code' ...
     """
-    text = text.strip().lower()
+    raw = raw_text.strip()
+    text = raw.lower()
+
+    # 隱藏指令：查詢UID
+    if text in ('查詢uid', 'uid', '我的uid'):
+        return 'query_uid', None, 0, None
+
+    # 管理員指令：設為管理員 <uid>
+    if text.startswith('設為管理員'):
+        target_uid = raw[5:].strip()  # 保留原始大小寫
+        return 'set_admin', None, 0, target_uid or None
+
+    # 管理員指令：移除管理員 <uid>
+    if text.startswith('移除管理員'):
+        target_uid = raw[5:].strip()
+        return 'remove_admin', None, 0, target_uid or None
+
+    # 管理員指令：生成序號 <期限>
+    if text.startswith('生成序號'):
+        duration = raw[4:].strip()
+        return 'gen_code', None, 0, duration or None
 
     # 幫助
-    if text in ('help', '幫助', '說明', '指令', '功能', '選單', 'menu'):
+    if text in ('help', '幫助', '說明', '指令', '功能', 'menu'):
         return 'help', None, 0, None
 
     # 查詢到期
@@ -104,7 +130,7 @@ def parse_user_message(text):
 
     # 儲值序號
     if text.startswith('儲值序號') or text == '儲值':
-        code = text.replace('儲值序號', '').replace('儲值', '').strip()
+        code = raw.replace('儲值序號', '').replace('儲值', '').strip()
         return 'redeem', None, 0, code or None
 
     # 主選單
@@ -265,11 +291,20 @@ def handle_analysis(sport, date_offset, keyword):
 
 def handle_check_expiry(user_id):
     """查詢會員到期日"""
-    # TODO: 串接實際會員資料庫
+    expiry = get_member_expiry(user_id)
+    admin_tag = ' 👑管理員' if is_admin(user_id) else ''
+
+    if expiry:
+        return (
+            f'📋 會員到期查詢{admin_tag}\n'
+            f'━━━━━━━━━━━━━━━\n'
+            f'\n'
+            f'{expiry}'
+        )
+
     return (
         '📋 會員到期查詢\n'
         '━━━━━━━━━━━━━━━\n'
-        f'👤 用戶 ID：{user_id[:10]}...\n'
         '\n'
         '⚠️ 尚未開通會員資格\n'
         '\n'
@@ -290,15 +325,81 @@ def handle_redeem(user_id, code):
             '例如：儲值序號 AB12-CD34-EF56'
         )
 
-    # TODO: 串接實際序號驗證邏輯
+    success, msg = redeem_code(user_id, code)
     return (
         '💰 儲值序號\n'
         '━━━━━━━━━━━━━━━\n'
-        f'\n序號：{code}\n'
-        '\n'
-        '❌ 序號無效或已使用，請確認後再試。\n'
-        '\n'
-        '如有問題請聯繫客服。'
+        f'\n{msg}'
+    )
+
+
+def handle_query_uid(user_id):
+    """查詢用戶 UID（隱藏指令）"""
+    admin_tag = ' 👑管理員' if is_admin(user_id) else ''
+    return (
+        f'🔑 你的 UID{admin_tag}\n'
+        f'━━━━━━━━━━━━━━━\n'
+        f'\n{user_id}'
+    )
+
+
+def handle_set_admin(operator_uid, target_uid):
+    """設為管理員（僅管理員可操作）"""
+    if not is_admin(operator_uid):
+        return '❌ 您沒有權限執行此操作。'
+    if not target_uid:
+        return '❌ 請提供目標用戶 UID。\n\n格式：設為管理員 <UID>'
+
+    added = add_admin(target_uid)
+    if added:
+        return f'✅ 已將 {target_uid[:10]}... 設為管理員。'
+    return f'⚠️ {target_uid[:10]}... 已經是管理員。'
+
+
+def handle_remove_admin(operator_uid, target_uid):
+    """移除管理員"""
+    if not is_admin(operator_uid):
+        return '❌ 您沒有權限執行此操作。'
+    if not target_uid:
+        return '❌ 請提供目標用戶 UID。\n\n格式：移除管理員 <UID>'
+
+    removed = remove_admin(target_uid)
+    if removed:
+        return f'✅ 已移除 {target_uid[:10]}... 的管理員資格。'
+    return f'⚠️ {target_uid[:10]}... 不是管理員。'
+
+
+def handle_gen_code(operator_uid, duration_label):
+    """生成序號（僅管理員）"""
+    if not is_admin(operator_uid):
+        return '❌ 您沒有權限執行此操作。'
+
+    if not duration_label:
+        options = '\n'.join([f'  • {k}' for k in DURATION_OPTIONS.keys()])
+        return (
+            '🎫 生成序號\n'
+            '━━━━━━━━━━━━━━━\n'
+            '\n'
+            '請指定有效期限：\n'
+            f'{options}\n'
+            '\n'
+            '格式：生成序號 30分鐘\n'
+            '格式：生成序號 7天'
+        )
+
+    code, duration_min = generate_code(operator_uid, duration_label)
+    if not code:
+        options = '、'.join(DURATION_OPTIONS.keys())
+        return f'❌ 無效的期限。\n\n可用選項：{options}'
+
+    return (
+        '🎫 序號生成成功\n'
+        '━━━━━━━━━━━━━━━\n'
+        f'\n'
+        f'📝 序號：{code}\n'
+        f'⏱ 有效期限：{duration_label}\n'
+        f'\n'
+        f'用戶輸入「儲值序號 {code}」即可開通。'
     )
 
 
@@ -380,11 +481,13 @@ def build_game_qr(game_list, sport_name=''):
 def handle_message(event):
     """處理使用者訊息"""
     text = event.message.text.strip()
+    uid = event.source.user_id
     action, sport, date_offset, keyword = parse_user_message(text)
 
     game_list = []
     qr_items = build_main_menu_qr()  # 預設回到第一層
 
+    # 不需要會員的指令
     if action == 'main_menu':
         reply = (
             '🏆 SPORTIQ 體育分析\n'
@@ -392,37 +495,53 @@ def handle_message(event):
             '\n'
             '請點擊下方按鈕選擇功能：'
         )
-        qr_items = build_main_menu_qr()
     elif action == 'help':
         reply = build_help_message()
-    elif action == 'select_sport':
-        display_date = get_display_date(date_offset)
-        reply = (
-            f'🏆 請選擇運動類型\n'
-            f'📅 {display_date}\n'
-            f'━━━━━━━━━━━━━━━\n'
-            f'\n'
-            f'點擊下方按鈕選擇想查看的運動：'
-        )
-        qr_items = build_sport_select_qr(date_offset)
-    elif action == 'list':
-        sport_name = {'basketball': '籃球', 'baseball': '棒球', 'soccer': '足球',
-                      'hockey': '冰球', 'tennis': '網球'}.get(sport or '', '')
-        reply, game_list = handle_list(sport or 'basketball', date_offset)
-        if game_list:
-            qr_items = build_game_qr(game_list, sport_name)
-        else:
-            qr_items = build_sport_select_qr(date_offset)
-    elif action == 'analysis':
-        reply = handle_analysis(sport, date_offset, keyword)
-        # 分析完回到主選單
-        qr_items = build_main_menu_qr()
+    elif action == 'query_uid':
+        reply = handle_query_uid(uid)
+    elif action == 'set_admin':
+        reply = handle_set_admin(uid, keyword)
+    elif action == 'remove_admin':
+        reply = handle_remove_admin(uid, keyword)
+    elif action == 'gen_code':
+        reply = handle_gen_code(uid, keyword)
     elif action == 'check_expiry':
-        reply = handle_check_expiry(event.source.user_id)
-        qr_items = build_main_menu_qr()
+        reply = handle_check_expiry(uid)
     elif action == 'redeem':
-        reply = handle_redeem(event.source.user_id, keyword)
-        qr_items = build_main_menu_qr()
+        reply = handle_redeem(uid, keyword)
+
+    # 需要會員的指令
+    elif action in ('select_sport', 'list', 'analysis'):
+        if not is_member_active(uid):
+            reply = (
+                '🔒 此功能需要會員資格\n'
+                '━━━━━━━━━━━━━━━\n'
+                '\n'
+                '請先儲值序號來開通會員：\n'
+                '👉 格式：儲值序號 XXXX-XXXX-XXXX\n'
+                '\n'
+                '輸入「查詢到期」可查看會員狀態。'
+            )
+        elif action == 'select_sport':
+            display_date = get_display_date(date_offset)
+            reply = (
+                f'🏆 請選擇運動類型\n'
+                f'📅 {display_date}\n'
+                f'━━━━━━━━━━━━━━━\n'
+                f'\n'
+                f'點擊下方按鈕選擇想查看的運動：'
+            )
+            qr_items = build_sport_select_qr(date_offset)
+        elif action == 'list':
+            sport_name = {'basketball': '籃球', 'baseball': '棒球', 'soccer': '足球',
+                          'hockey': '冰球', 'tennis': '網球'}.get(sport or '', '')
+            reply, game_list = handle_list(sport or 'basketball', date_offset)
+            if game_list:
+                qr_items = build_game_qr(game_list, sport_name)
+            else:
+                qr_items = build_sport_select_qr(date_offset)
+        elif action == 'analysis':
+            reply = handle_analysis(sport, date_offset, keyword)
     else:
         reply = build_help_message()
 
