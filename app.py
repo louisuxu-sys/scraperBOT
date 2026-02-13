@@ -107,11 +107,19 @@ def parse_user_message(text):
         code = text.replace('儲值序號', '').replace('儲值', '').strip()
         return 'redeem', None, 0, code or None
 
+    # 主選單
+    if text in ('主選單', '選單', '返回', '返回主選單'):
+        return 'main_menu', None, 0, None
+
     # 今日賽事 / 明日賽事：觸發運動選單
     if text in ('今日賽事', '賽事', '今天'):
         return 'select_sport', None, 0, None
     if text in ('明日賽事',):
         return 'select_sport', None, 1, None
+
+    # 返回運動選擇
+    if text in ('返回運動選擇', '選運動'):
+        return 'select_sport', None, 0, None
 
     # 日期偏移
     date_offset = 0
@@ -316,8 +324,10 @@ def health():
     return {'status': 'ok', 'service': 'sportiq-linebot'}
 
 
-def build_default_qr():
-    """預設的固定 Quick Reply 按鈕"""
+# ===== Quick Reply 階層選單 =====
+
+def build_main_menu_qr():
+    """第一層：主選單"""
     return [
         QuickReplyItem(action=MessageAction(label='🏆 今日賽事', text='今日賽事')),
         QuickReplyItem(action=MessageAction(label='📅 明日賽事', text='明日賽事')),
@@ -327,35 +337,43 @@ def build_default_qr():
 
 
 def build_sport_select_qr(date_offset=0):
-    """運動選擇 Quick Reply 按鈕"""
-    prefix = '' if date_offset == 0 else '明天 ' if date_offset == 1 else f'offset{date_offset} '
+    """第二層：選運動類型"""
+    prefix = '' if date_offset == 0 else '明天 '
     items = []
     for s in SPORT_OPTIONS:
         label = f'{s["emoji"]} {s["name"]}'
         cmd = f'{prefix}{s["name"]}' if prefix else s['name']
         items.append(QuickReplyItem(action=MessageAction(label=label, text=cmd.strip())))
-    items.extend([
-        QuickReplyItem(action=MessageAction(label='🔍 查詢到期', text='查詢到期')),
-        QuickReplyItem(action=MessageAction(label='💰 儲值序號', text='儲值序號')),
-    ])
+    items.append(
+        QuickReplyItem(action=MessageAction(label='↩ 返回主選單', text='返回主選單'))
+    )
     return items
 
 
-def build_game_qr(game_list):
-    """賽事列表的 Quick Reply：每場比賽的分析按鈕 + 固定按鈕"""
+def build_game_qr(game_list, sport_name=''):
+    """第三層：每場比賽的分析按鈕"""
     game_buttons = []
     seen = set()
     for g in game_list:
         home = g.get('home', '')
+        away = g.get('away', '')
         if home and home != '—' and home not in seen:
-            label = f'⚡ {home[:8]}' if len(home) > 8 else f'⚡ {home}'
+            # 顯示「客隊 vs 主隊」讓用戶清楚是哪場比賽
+            vs_text = f'{away}v{home}' if away and away != '—' else home
+            label = f'📊 {vs_text[:10]}' if len(vs_text) > 10 else f'📊 {vs_text}'
             game_buttons.append(
                 QuickReplyItem(action=MessageAction(label=label, text=f'分析 {home}'))
             )
             seen.add(home)
-        if len(game_buttons) >= 9:
+        if len(game_buttons) >= 11:  # 留 2 個給返回按鈕
             break
-    return game_buttons + build_default_qr()
+    game_buttons.append(
+        QuickReplyItem(action=MessageAction(label='↩ 返回運動選擇', text='返回運動選擇'))
+    )
+    game_buttons.append(
+        QuickReplyItem(action=MessageAction(label='🏠 主選單', text='返回主選單'))
+    )
+    return game_buttons
 
 
 @handler.add(MessageEvent, message=TextMessageContent)
@@ -365,9 +383,17 @@ def handle_message(event):
     action, sport, date_offset, keyword = parse_user_message(text)
 
     game_list = []
-    qr_items = build_default_qr()
+    qr_items = build_main_menu_qr()  # 預設回到第一層
 
-    if action == 'help':
+    if action == 'main_menu':
+        reply = (
+            '🏆 SPORTIQ 體育分析\n'
+            '━━━━━━━━━━━━━━━\n'
+            '\n'
+            '請點擊下方按鈕選擇功能：'
+        )
+        qr_items = build_main_menu_qr()
+    elif action == 'help':
         reply = build_help_message()
     elif action == 'select_sport':
         display_date = get_display_date(date_offset)
@@ -380,15 +406,23 @@ def handle_message(event):
         )
         qr_items = build_sport_select_qr(date_offset)
     elif action == 'list':
+        sport_name = {'basketball': '籃球', 'baseball': '棒球', 'soccer': '足球',
+                      'hockey': '冰球', 'tennis': '網球'}.get(sport or '', '')
         reply, game_list = handle_list(sport or 'basketball', date_offset)
         if game_list:
-            qr_items = build_game_qr(game_list)
+            qr_items = build_game_qr(game_list, sport_name)
+        else:
+            qr_items = build_sport_select_qr(date_offset)
     elif action == 'analysis':
         reply = handle_analysis(sport, date_offset, keyword)
+        # 分析完回到主選單
+        qr_items = build_main_menu_qr()
     elif action == 'check_expiry':
         reply = handle_check_expiry(event.source.user_id)
+        qr_items = build_main_menu_qr()
     elif action == 'redeem':
         reply = handle_redeem(event.source.user_id, keyword)
+        qr_items = build_main_menu_qr()
     else:
         reply = build_help_message()
 
