@@ -80,8 +80,8 @@ SPORT_OPTIONS = [
 _cache = {}
 CACHE_TTL = 120  # 秒
 
-# 用戶 session：記住每個用戶目前瀏覽的日期偏移
-_user_date_offset = {}  # uid -> date_offset
+# 用戶 session：記住每個用戶目前瀏覽的日期偏移和運動類型
+_user_session = {}  # uid -> {'date_offset': int, 'sport': str}
 
 
 def get_games_cached(sport, gamedate):
@@ -228,19 +228,22 @@ def build_help_message():
 
 
 def find_game_by_keyword(games, keyword):
-    """根據關鍵字找到匹配的比賽"""
+    """根據關鍵字找到匹配的比賽（優先完全匹配，再部分匹配）"""
     if not keyword:
         return []
 
     keyword = keyword.lower()
-    matched = []
+    exact = []
+    partial = []
     for g in games:
         home = g.get('home', '').lower()
         away = g.get('away', '').lower()
-        if keyword in home or keyword in away:
-            matched.append(g)
+        if keyword == home or keyword == away:
+            exact.append(g)
+        elif keyword in home or keyword in away:
+            partial.append(g)
 
-    return matched
+    return exact if exact else partial
 
 
 def handle_list(sport, date_offset):
@@ -277,9 +280,24 @@ def handle_analysis(sport, date_offset, keyword):
             break
 
     if not all_matched:
+        display_date = get_display_date(date_offset)
         if keyword:
-            return f'❌ 找不到與「{keyword}」相關的賽事。\n\n請確認隊名是否正確，或嘗試其他關鍵字。'
-        return '❌ 今日暫無賽事資料。'
+            return (
+                '╭────────────────╮\n'
+                '│  ❌ 查無賽事            │\n'
+                '╰────────────────╯\n'
+                f'\n📅 {display_date}\n'
+                f'找不到與「{keyword}」相關的賽事。\n\n'
+                '▸ 請確認隊名是否正確\n'
+                '▸ 或返回賽事列表重新選擇'
+            )
+        return (
+            '╭────────────────╮\n'
+            '│  ❌ 查無賽事            │\n'
+            '╰────────────────╯\n'
+            f'\n📅 {display_date}\n'
+            '目前暫無賽事資料。'
+        )
 
     # 回傳每場匹配比賽的分析
     results = []
@@ -576,7 +594,7 @@ def handle_message(event):
                 '▸ 輸入「查詢到期」可查看會員狀態'
             )
         elif action == 'select_sport':
-            _user_date_offset[uid] = date_offset
+            _user_session[uid] = {'date_offset': date_offset, 'sport': None}
             display_date = get_display_date(date_offset)
             reply = (
                 f'╭────────────────╮\n'
@@ -588,7 +606,7 @@ def handle_message(event):
             )
             qr_items = build_sport_select_qr(date_offset)
         elif action == 'list':
-            _user_date_offset[uid] = date_offset
+            _user_session[uid] = {'date_offset': date_offset, 'sport': sport}
             sport_name = {'basketball': '籃球', 'baseball': '棒球', 'soccer': '足球',
                           'hockey': '冰球', 'tennis': '網球'}.get(sport or '', '')
             reply, game_list = handle_list(sport or 'basketball', date_offset)
@@ -597,9 +615,12 @@ def handle_message(event):
             else:
                 qr_items = build_sport_select_qr(date_offset)
         elif action == 'analysis':
-            # 如果用戶沒有明確指定日期，使用上次瀏覽的日期
-            if date_offset == 0 and uid in _user_date_offset:
-                date_offset = _user_date_offset[uid]
+            # 如果用戶沒有明確指定日期或運動，使用上次瀏覽的 session
+            session = _user_session.get(uid, {})
+            if date_offset == 0 and session.get('date_offset'):
+                date_offset = session['date_offset']
+            if not sport and session.get('sport'):
+                sport = session['sport']
             reply = handle_analysis(sport, date_offset, keyword)
     else:
         reply = build_help_message()

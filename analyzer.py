@@ -436,5 +436,8 @@ def format_all_games_text(games, sport='basketball', date_str=''):
             lines.append(format_game_text(g, sport))
         lines.append('')
 
-    lines.append(f'👇 點擊下方按鈕查看 AI 分析')
+    if len(games) > 11:
+        lines.append(f'👇 點擊按鈕或輸入「分析 隊名」查看分析')
+    else:
+        lines.append(f'👇 點擊下方按鈕查看 AI 分析')
     return '\n'.join(lines)
