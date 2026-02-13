@@ -80,6 +80,9 @@ SPORT_OPTIONS = [
 _cache = {}
 CACHE_TTL = 120  # 秒
 
+# 用戶 session：記住每個用戶目前瀏覽的日期偏移
+_user_date_offset = {}  # uid -> date_offset
+
 
 def get_games_cached(sport, gamedate):
     """帶快取的資料取得"""
@@ -573,6 +576,7 @@ def handle_message(event):
                 '▸ 輸入「查詢到期」可查看會員狀態'
             )
         elif action == 'select_sport':
+            _user_date_offset[uid] = date_offset
             display_date = get_display_date(date_offset)
             reply = (
                 f'╭────────────────╮\n'
@@ -584,6 +588,7 @@ def handle_message(event):
             )
             qr_items = build_sport_select_qr(date_offset)
         elif action == 'list':
+            _user_date_offset[uid] = date_offset
             sport_name = {'basketball': '籃球', 'baseball': '棒球', 'soccer': '足球',
                           'hockey': '冰球', 'tennis': '網球'}.get(sport or '', '')
             reply, game_list = handle_list(sport or 'basketball', date_offset)
@@ -592,6 +597,9 @@ def handle_message(event):
             else:
                 qr_items = build_sport_select_qr(date_offset)
         elif action == 'analysis':
+            # 如果用戶沒有明確指定日期，使用上次瀏覽的日期
+            if date_offset == 0 and uid in _user_date_offset:
+                date_offset = _user_date_offset[uid]
             reply = handle_analysis(sport, date_offset, keyword)
     else:
         reply = build_help_message()
