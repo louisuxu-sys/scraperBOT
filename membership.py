@@ -175,9 +175,10 @@ def redeem_code(uid, code):
     expires_str = new_expires.strftime('%Y/%m/%d %H:%M')
     return True, (
         f'✅ 儲值成功！\n\n'
-        f'📋 序號：{code}\n'
-        f'⏱ 時長：{code_info["duration_label"]}\n'
-        f'📅 到期時間：{expires_str}'
+        f'▸ 序號：{code}\n'
+        f'▸ 時長：{code_info["duration_label"]}\n'
+        f'▸ 到期：{expires_str}\n\n'
+        f'現在可以使用賽事查詢和分析功能了！'
     )
 
 

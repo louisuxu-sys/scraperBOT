@@ -327,15 +327,18 @@ def format_game_text(game, sport='basketball'):
             win_mark = ' 🎯✔'
 
     lines = [
-        f'━━━━━━━━━━━━━━━{win_mark}',
-        f'{status}  {time_str}',
-        f'🏠 {home}',
-        f'🚌 {away}',
-        f'📊 {score}',
+        f'╭────────────────╮',
+        f'│ {status}  {time_str}{win_mark}',
+        f'├────────────────┤',
+        f'│ 🏠 {home}',
+        f'│ 🚌 {away}',
+        f'│ 📊 {score}',
     ]
 
     if spread_text:
-        lines.append(spread_text)
+        lines.append(f'│ {spread_text}')
+
+    lines.append('╰────────────────╯')
 
     return '\n'.join(lines)
 
@@ -348,30 +351,46 @@ def format_analysis_text(game, sport='basketball'):
     home = game.get('home', '—')
     away = game.get('away', '—')
 
+    # 勝率長條圖
+    hw = analysis['homeWin']
+    aw = analysis['awayWin']
+    bar_len = 10
+    h_bar = '█' * round(hw / 100 * bar_len)
+    a_bar = '█' * round(aw / 100 * bar_len)
+
     lines = [
-        f'⚡ AI 智能分析',
-        f'━━━━━━━━━━━━━━━',
-        f'🏠 {home} vs 🚌 {away}',
-        f'',
-        f'📈 勝率預測',
-        f'  主勝: {analysis["homeWin"]}%',
+        f'╭────────────────╮',
+        f'│  ⚡ AI 智能分析         │',
+        f'│  🏠 {home}',
+        f'│  🚌 {away}',
+        f'├────────────────┤',
+        f'│',
+        f'│  📈 勝率預測',
+        f'│  主 {h_bar} {hw}%',
     ]
 
-    if not (sport == 'basketball'):
-        lines.append(f'  平局: {analysis["draw"]}%')
+    if sport != 'basketball':
+        dw = analysis['draw']
+        d_bar = '█' * round(dw / 100 * bar_len)
+        lines.append(f'│  平 {d_bar} {dw}%')
 
     lines.extend([
-        f'  客勝: {analysis["awayWin"]}%',
-        f'  信心指數: {analysis["confidence"]}%',
-        f'',
+        f'│  客 {a_bar} {aw}%',
+        f'│',
+        f'│  🎯 信心指數：{analysis["confidence"]}%',
+        f'│',
     ])
 
     # 分析文字
     suggestion = analysis.get('suggestion', '')
     if suggestion:
+        lines.append(f'├────────────────┤')
+        lines.append(f'│  📝 分析建議')
         for line in suggestion.split('\n'):
             if line.strip():
-                lines.append(line.strip())
+                lines.append(f'│  {line.strip()}')
+
+    lines.append(f'╰────────────────╯')
 
     return '\n'.join(lines)
 
@@ -381,7 +400,17 @@ def format_all_games_text(games, sport='basketball', date_str=''):
     格式化所有比賽為 LINE 訊息
     """
     if not games:
-        return f'📅 {date_str}\n\n目前沒有賽事資料，請稍後再試。'
+        return (
+            f'╭────────────────╮\n'
+            f'│  📅 {date_str}            │\n'
+            f'╰────────────────╯\n'
+            f'\n目前沒有賽事資料，請稍後再試。'
+        )
+
+    sport_emoji = {
+        'basketball': '🏀', 'baseball': '⚾',
+        'soccer': '⚽', 'hockey': '🏒', 'tennis': '🎾'
+    }.get(sport, '🏆')
 
     # 按聯賽分組
     groups = {}
@@ -391,16 +420,21 @@ def format_all_games_text(games, sport='basketball', date_str=''):
             groups[league] = []
         groups[league].append(g)
 
-    lines = [f'🏆 SPORTIQ 體育分析']
+    lines = [
+        f'╭────────────────╮',
+        f'│  {sport_emoji} SPORTIQ 賽事       │',
+    ]
     if date_str:
-        lines.append(f'📅 {date_str}')
+        lines.append(f'│  📅 {date_str}            │')
+    lines.append(f'│  📊 共 {len(games)} 場賽事         │')
+    lines.append(f'╰────────────────╯')
     lines.append('')
 
     for league, league_games in groups.items():
-        lines.append(f'🏷 {league} ({len(league_games)} 場)')
+        lines.append(f'🏷 {league}【{len(league_games)} 場】')
         for g in league_games:
             lines.append(format_game_text(g, sport))
         lines.append('')
 
-    lines.append(f'共 {len(games)} 場賽事')
+    lines.append(f'👇 點擊下方按鈕查看 AI 分析')
     return '\n'.join(lines)
