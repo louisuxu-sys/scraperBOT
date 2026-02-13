@@ -321,7 +321,7 @@ def callback():
 @app.route('/health', methods=['GET'])
 def health():
     """健康檢查"""
-    return {'status': 'ok', 'service': 'sportiq-linebot'}
+    return {'status': 'ok', 'service': 'sportiq-linebot', 'version': 'v2.1'}
 
 
 # ===== Quick Reply 階層選單 =====
