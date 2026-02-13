@@ -21,6 +21,9 @@ from linebot.v3.messaging import (
     MessagingApi,
     ReplyMessageRequest,
     TextMessage,
+    QuickReply,
+    QuickReplyItem,
+    MessageAction,
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 from linebot.v3.exceptions import InvalidSignatureError
@@ -85,6 +88,15 @@ def parse_user_message(text):
     # 幫助
     if text in ('help', '幫助', '說明', '指令', '功能', '選單', 'menu'):
         return 'help', None, 0, None
+
+    # 查詢到期
+    if text in ('查詢到期', '到期', '到期日', '會員到期'):
+        return 'check_expiry', None, 0, None
+
+    # 儲值序號
+    if text.startswith('儲值序號') or text == '儲值':
+        code = text.replace('儲值序號', '').replace('儲值', '').strip()
+        return 'redeem', None, 0, code or None
 
     # 日期偏移
     date_offset = 0
@@ -228,6 +240,45 @@ def handle_analysis(sport, date_offset, keyword):
     return '\n\n'.join(results)
 
 
+def handle_check_expiry(user_id):
+    """查詢會員到期日"""
+    # TODO: 串接實際會員資料庫
+    return (
+        '📋 會員到期查詢\n'
+        '━━━━━━━━━━━━━━━\n'
+        f'👤 用戶 ID：{user_id[:10]}...\n'
+        '\n'
+        '⚠️ 尚未開通會員資格\n'
+        '\n'
+        '💡 請輸入「儲值序號 你的序號」來開通或續費。'
+    )
+
+
+def handle_redeem(user_id, code):
+    """儲值序號"""
+    if not code:
+        return (
+            '💰 儲值序號\n'
+            '━━━━━━━━━━━━━━━\n'
+            '\n'
+            '請輸入您的儲值序號：\n'
+            '👉 格式：儲值序號 XXXX-XXXX-XXXX\n'
+            '\n'
+            '例如：儲值序號 AB12-CD34-EF56'
+        )
+
+    # TODO: 串接實際序號驗證邏輯
+    return (
+        '💰 儲值序號\n'
+        '━━━━━━━━━━━━━━━\n'
+        f'\n序號：{code}\n'
+        '\n'
+        '❌ 序號無效或已使用，請確認後再試。\n'
+        '\n'
+        '如有問題請聯繫客服。'
+    )
+
+
 # ===== Flask Routes =====
 
 @app.route('/callback', methods=['POST'])
@@ -262,6 +313,10 @@ def handle_message(event):
         reply = handle_list(sport or 'basketball', date_offset)
     elif action == 'analysis':
         reply = handle_analysis(sport, date_offset, keyword)
+    elif action == 'check_expiry':
+        reply = handle_check_expiry(event.source.user_id)
+    elif action == 'redeem':
+        reply = handle_redeem(event.source.user_id, keyword)
     else:
         reply = build_help_message()
 
@@ -269,12 +324,28 @@ def handle_message(event):
     if len(reply) > 5000:
         reply = reply[:4950] + '\n\n... (訊息過長，已截斷)'
 
+    # Quick Reply 按鈕
+    quick_reply = QuickReply(items=[
+        QuickReplyItem(
+            action=MessageAction(label='📊 今日賽事', text='籃球')
+        ),
+        QuickReplyItem(
+            action=MessageAction(label='📅 明日賽事', text='明天 籃球')
+        ),
+        QuickReplyItem(
+            action=MessageAction(label='🔍 查詢到期', text='查詢到期')
+        ),
+        QuickReplyItem(
+            action=MessageAction(label='💰 儲值序號', text='儲值序號')
+        ),
+    ])
+
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
         line_bot_api.reply_message_with_http_info(
             ReplyMessageRequest(
                 reply_token=event.reply_token,
-                messages=[TextMessage(text=reply)]
+                messages=[TextMessage(text=reply, quick_reply=quick_reply)]
             )
         )
 
