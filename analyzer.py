@@ -61,6 +61,7 @@ def generate_analysis(game, sport='basketball'):
 
     home_name = game.get('home', '主隊')
     away_name = game.get('away', '客隊')
+    expected_total = 0
 
     # 解析數據
     home_rec = parse_record(rec.get('homeRecord'))
@@ -204,6 +205,8 @@ def generate_analysis(game, sport='basketball'):
                 lines.append(f'預計本場節奏偏快，大分機率較高（預估總分 {expected_total:.0f} 分上下）。')
             elif expected_total < 210:
                 lines.append(f'雙方防守強度較高，小分值得關注（預估總分 {expected_total:.0f} 分上下）。')
+        else:
+            expected_total = (home_avg['scored'] + away_avg['scored'] + home_avg['allowed'] + away_avg['allowed']) / 2
 
     # 5. 盤口
     if has_spread:
@@ -280,6 +283,7 @@ def generate_analysis(game, sport='basketball'):
         'awayWin': away_win,
         'suggestion': '\n'.join(lines),
         'confidence': confidence,
+        'expectedTotal': expected_total,
     }
 
 
@@ -333,24 +337,31 @@ def format_game_text(game, sport='basketball'):
     diff = abs(hw - aw)
     fav = home if hw >= aw else away
     dog = away if hw >= aw else home
+    exp_total = analysis.get('expectedTotal', 0)
 
     try:
         spread_val = float(odds.get('spread', '0'))
     except (ValueError, TypeError):
         spread_val = 0
+    abs_spread = abs(spread_val)
 
-    if diff > 20:
-        recommend = f'🔮 推薦：{fav} 讓分'
+    if diff > 20 and abs_spread > 0:
+        recommend = f'🔮 推薦：{fav} 讓 {abs_spread} 分'
+    elif diff > 20:
+        recommend = f'🔮 推薦：{fav} 獨贏'
     elif diff > 10:
         recommend = f'🔮 推薦：{fav} 獨贏'
     elif spread_val != 0:
         dog_team = away if spread_val > 0 else home
-        recommend = f'🔮 推薦：{dog_team} 受讓'
-    else:
+        recommend = f'🔮 推薦：{dog_team} 受讓 {abs_spread} 分'
+    elif exp_total > 0:
+        total_line = round(exp_total / 5) * 5
         if analysis.get('confidence', 50) >= 55:
-            recommend = f'🔮 推薦：推大分'
+            recommend = f'🔮 推薦：大 {total_line} 分'
         else:
-            recommend = f'🔮 推薦：推小分'
+            recommend = f'🔮 推薦：小 {total_line} 分'
+    else:
+        recommend = f'🔮 推薦：{fav} 獨贏'
 
     lines = [
         f'━━━━━━━━━━━━━━━',
