@@ -326,16 +326,31 @@ def format_game_text(game, sport='basketball'):
         if winner == spread_fav:
             win_mark = ' 🎯✔'
 
-    # AI 快速推薦
+    # 快速推薦（讓分/受讓/獨贏/大小分）
     analysis = generate_analysis(game, sport)
     hw = analysis['homeWin']
     aw = analysis['awayWin']
-    if hw > aw + 10:
-        recommend = f'🔮 AI推薦：{home} 勝 {hw}%'
-    elif aw > hw + 10:
-        recommend = f'🔮 AI推薦：{away} 勝 {aw}%'
+    diff = abs(hw - aw)
+    fav = home if hw >= aw else away
+    dog = away if hw >= aw else home
+
+    try:
+        spread_val = float(odds.get('spread', '0'))
+    except (ValueError, TypeError):
+        spread_val = 0
+
+    if diff > 20:
+        recommend = f'🔮 推薦：{fav} 讓分'
+    elif diff > 10:
+        recommend = f'🔮 推薦：{fav} 獨贏'
+    elif spread_val != 0:
+        dog_team = away if spread_val > 0 else home
+        recommend = f'🔮 推薦：{dog_team} 受讓'
     else:
-        recommend = f'🔮 AI推薦：勢均力敵'
+        if analysis.get('confidence', 50) >= 55:
+            recommend = f'🔮 推薦：推大分'
+        else:
+            recommend = f'🔮 推薦：推小分'
 
     lines = [
         f'━━━━━━━━━━━━━━━',
@@ -368,7 +383,7 @@ def format_analysis_text(game, sport='basketball'):
     a_bar = '█' * round(aw / 100 * bar_len)
 
     lines = [
-        f'⚡ AI 智能分析',
+        f'⚡ 賽事分析',
         f'━━━━━━━━━━━━━━━',
         f'🏠 {home}',
         f'🚌 {away}',
@@ -441,7 +456,7 @@ def format_all_games_text(games, sport='basketball', date_str=''):
         lines.append('')
 
     if len(games) > 11:
-        lines.append(f'👇 點擊按鈕或輸入「分析 隊名」查看分析')
+        lines.append(f'👇 點擊按鈕或輸入「分析 隊名」查看詳細分析')
     else:
-        lines.append(f'👇 點擊下方按鈕查看 AI 分析')
+        lines.append(f'👇 點擊下方按鈕查看詳細分析')
     return '\n'.join(lines)
