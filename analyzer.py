@@ -326,12 +326,24 @@ def format_game_text(game, sport='basketball'):
         if winner == spread_fav:
             win_mark = ' 🎯✔'
 
+    # AI 快速推薦
+    analysis = generate_analysis(game, sport)
+    hw = analysis['homeWin']
+    aw = analysis['awayWin']
+    if hw > aw + 10:
+        recommend = f'🔮 AI推薦：{home} 勝 {hw}%'
+    elif aw > hw + 10:
+        recommend = f'🔮 AI推薦：{away} 勝 {aw}%'
+    else:
+        recommend = f'🔮 AI推薦：勢均力敵'
+
     lines = [
         f'━━━━━━━━━━━━━━━',
         f'{status}  {time_str}{win_mark}',
         f'🏠 {home}',
         f'🚌 {away}',
         f'📊 {score}',
+        recommend,
     ]
 
     if spread_text:
