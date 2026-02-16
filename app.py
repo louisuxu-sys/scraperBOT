@@ -11,6 +11,8 @@ SPORTIQ LINE Bot
 """
 import os
 import re
+import threading
+import urllib.request
 from datetime import datetime, timedelta, timezone
 
 from flask import Flask, request, abort
@@ -626,6 +628,24 @@ def handle_message(event):
                 messages=[TextMessage(text=reply, quick_reply=quick_reply)]
             )
         )
+
+
+# ===== Keep-Alive 防止休眠 =====
+def keep_alive():
+    """每 10 分鐘 ping 自己的 /health，防止 Render 免費方案休眠"""
+    url = os.environ.get('RENDER_EXTERNAL_URL')
+    if url:
+        try:
+            urllib.request.urlopen(f'{url}/health', timeout=10)
+            print(f'[KeepAlive] Pinged {url}/health')
+        except Exception as e:
+            print(f'[KeepAlive] Ping failed: {e}')
+    timer = threading.Timer(600, keep_alive)  # 600秒 = 10分鐘
+    timer.daemon = True
+    timer.start()
+
+# 啟動 keep-alive
+keep_alive()
 
 
 # ===== 啟動 =====
