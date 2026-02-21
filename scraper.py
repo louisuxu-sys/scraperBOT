@@ -346,14 +346,20 @@ def fetch_all_games(sport='basketball', gamedate=None):
         except Exception as e:
             print(f'[Scraper] {league["name"]} error: {e}')
 
-    # 去重：同一場比賽可能出現在多個聯賽
-    seen_games = set()
+    # 去重：確保同一場比賽不重複出現
+    seen_ids = set()
     unique_games = []
     for game in all_games:
-        # 用隊名+時間+日期作為唯一識別碼
-        key = f"{game['away']}_{game['home']}_{game['time']}_{game['date']}"
-        if key not in seen_games:
-            seen_games.add(key)
+        # 優先使用 gameId 作為唯一識別
+        game_id = game.get('gameId', '')
+        
+        # 如果沒有 gameId，用隊名+時間+日期作為備用
+        if not game_id:
+            key = f"{game['away']}_{game['home']}_{game['time']}_{game['date']}"
+            game_id = key
+        
+        if game_id not in seen_ids:
+            seen_ids.add(game_id)
             unique_games.append(game)
     
     # 排序：live > upcoming > postponed > finished
