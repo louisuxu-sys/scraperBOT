@@ -302,36 +302,14 @@ def parse_live_scores(html):
         gb_end = html.find('<!--outer-gamebox-->', gb_start)
         gb_html = html[gb_start:gb_end] if gb_start > -1 and gb_end > -1 else ''
 
-        # 運動類型特定狀態判斷
+        # 最簡單的狀態判斷
         status = None
         if away_score is not None and home_score is not None:
-            # 有比分且不是 0:0
-            has_score = away_score > 0 or home_score > 0
-            
-            # 不同運動的狀態指示器
-            if has_score:
-                # 籃球、棒球：檢查 gamebox-notend
-                if 'gamebox-notend' in gb_html:
-                    status = 'live'
-                else:
-                    status = 'finished'
+            # 如果有 gamebox-notend class，表示進行中或未結束
+            if 'gamebox-notend' in gb_html:
+                status = 'live'
             else:
-                # 0:0 的情況，檢查是否有其他進行中指示
-                # 足球、冰球、網球可能有不同的狀態指示
-                live_indicators = [
-                    'gamebox-live',
-                    'live-score',
-                    'in-progress',
-                    '進行中',
-                    'LIVE',
-                    'Live'
-                ]
-                
-                has_live_indicator = any(indicator in gb_html for indicator in live_indicators)
-                
-                if has_live_indicator:
-                    status = 'live'
-                # 否則保持 upcoming（不設定狀態）
+                status = 'finished'
 
         has_qs = len(quarter_scores['away']) > 0 or len(quarter_scores['home']) > 0
         score_data[game_id] = {
