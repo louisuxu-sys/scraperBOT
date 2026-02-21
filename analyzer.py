@@ -308,27 +308,8 @@ def format_game_text(game, sport='basketball'):
     else:
         score = 'VS'
 
-    # 盤口
-    spread_text = ''
-    spread_fav = ''
+    # 盤口資訊（用於推薦計算）
     odds = game.get('odds', {})
-    spread_str = odds.get('spread', '')
-    try:
-        spread = float(spread_str)
-        if spread != 0:
-            spread_fav = home if spread > 0 else away
-            spread_text = f'📌 推薦：{spread_fav} 讓{abs(spread)}'
-    except (ValueError, TypeError):
-        pass
-
-    # 推薦獲勝標記
-    win_mark = ''
-    if game.get('status') == 'finished' and game.get('homeScore') is not None and spread_fav:
-        hs = int(game['homeScore'])
-        a_s = int(game['awayScore'])
-        winner = home if hs > a_s else away
-        if winner == spread_fav:
-            win_mark = ' 🎯✔'
 
     # 快速推薦（讓分/受讓/獨贏/大小分）
     analysis = generate_analysis(game, sport)
@@ -338,6 +319,15 @@ def format_game_text(game, sport='basketball'):
     fav = home if hw >= aw else away
     dog = away if hw >= aw else home
     exp_total = analysis.get('expectedTotal', 0)
+
+    # 推薦獲勝標記
+    win_mark = ''
+    if game.get('status') == 'finished' and game.get('homeScore') is not None:
+        hs = int(game['homeScore'])
+        a_s = int(game['awayScore'])
+        winner = home if hs > a_s else away
+        if winner == fav:
+            win_mark = ' 🎯✔'
 
     try:
         spread_val = float(odds.get('spread', '0'))
@@ -371,9 +361,6 @@ def format_game_text(game, sport='basketball'):
         f'📊 {score}',
         recommend,
     ]
-
-    if spread_text:
-        lines.append(spread_text)
 
     return '\n'.join(lines)
 
