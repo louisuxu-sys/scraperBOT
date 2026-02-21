@@ -302,44 +302,14 @@ def parse_live_scores(html):
         gb_end = html.find('<!--outer-gamebox-->', gb_start)
         gb_html = html[gb_start:gb_end] if gb_start > -1 and gb_end > -1 else ''
 
-        # 改進狀態判斷：從 HTML 提取時間資訊
+        # 簡化狀態判斷：基本邏輯
         status = None
         if away_score is not None and home_score is not None:
-            # 從 gamebox HTML 中提取時間資訊
-            time_text = ''
-            time_match = re.search(r'team_cinter[^>]*>\s*([^<]+)', gb_html)
-            if time_match:
-                time_text = time_match.group(1).strip()
-            
-            # 檢查時間字串是否包含進行中指示
-            time_indicates_live = (
-                'Q' in time_text.upper() or  # Q1, Q2, Q3, Q4
-                '節' in time_text or          # 第1節, 第2節
-                '開始' in time_text or        # 已開始
-                '進行' in time_text or        # 進行中
-                '半場' in time_text or        # 半場
-                '結束' in time_text           # 結束
-            )
-            
-            # 有比分且不是 0:0
-            has_real_score = away_score > 0 or home_score > 0
-            
-            # 有節比分表示真的在進行中
-            has_quarter_scores = len(quarter_scores['away']) > 0 or len(quarter_scores['home']) > 0
-            
-            # 檢查是否有其他進行中指示器
-            other_live_indicators = (
-                'quarter' in gb_html.lower() or
-                'Q1' in gb_html or
-                '第1節' in gb_html
-            )
-            
-            if has_real_score or has_quarter_scores or time_indicates_live or other_live_indicators:
-                if 'gamebox-notend' in gb_html:
-                    status = 'live'
-                else:
-                    status = 'finished'
-            # 0:0 且沒有其他進行中指示，不設定狀態，保持預設的 upcoming
+            # 如果有 gamebox-notend class，表示進行中或未結束
+            if 'gamebox-notend' in gb_html:
+                status = 'live'
+            else:
+                status = 'finished'
 
         has_qs = len(quarter_scores['away']) > 0 or len(quarter_scores['home']) > 0
         score_data[game_id] = {
