@@ -302,13 +302,31 @@ def parse_live_scores(html):
         gb_end = html.find('<!--outer-gamebox-->', gb_start)
         gb_html = html[gb_start:gb_end] if gb_start > -1 and gb_end > -1 else ''
 
-        # 回歸原始邏輯：簡單直接
+        # 改進狀態判斷：結合時間和比分
         status = None
         if away_score is not None and home_score is not None:
-            if 'gamebox-notend' in gb_html:
+            # 檢查時間是否為具體時間（如 00:00）而不是狀態文字
+            time_match = re.search(r'team_cinter[^>]*>\s*([^<]+)', gb_html)
+            time_text = time_match.group(1).strip() if time_match else ''
+            
+            # 如果時間是 HH:MM 格式，表示未開始
+            is_time_format = bool(re.match(r'^\d{1,2}:\d{2}$', time_text))
+            
+            # 如果時間包含 Q、節、開始等字眼，表示進行中
+            is_live_time = any(keyword in time_text for keyword in ['Q1', 'Q2', 'Q3', 'Q4', '節', '開始', '進行', '半場'])
+            
+            # 有真實比分（不是 0:0）且不是時間格式
+            has_real_score = away_score > 0 or home_score > 0
+            
+            if has_real_score and not is_time_format:
+                if 'gamebox-notend' in gb_html:
+                    status = 'live'
+                else:
+                    status = 'finished'
+            elif is_live_time:
+                # 時間文字顯示進行中
                 status = 'live'
-            else:
-                status = 'finished'
+            # 否則保持 upcoming（不設定狀態）
 
         has_qs = len(quarter_scores['away']) > 0 or len(quarter_scores['home']) > 0
         score_data[game_id] = {
