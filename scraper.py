@@ -302,21 +302,16 @@ def parse_live_scores(html):
         gb_end = html.find('<!--outer-gamebox-->', gb_start)
         gb_html = html[gb_start:gb_end] if gb_start > -1 and gb_end > -1 else ''
 
-        # 改進狀態判斷：確保比分真實存在
+        # 保守狀態判斷：只有非 0:0 才標記為 live
         status = None
         if away_score is not None and home_score is not None:
-            # 額外檢查：確保比分元素真的存在於 HTML 中
-            away_score_exists = re.search(rf'id="{game_id}_asr_big"[^>]*>(\d+)<', gb_html) or \
-                              re.search(rf'id="{game_id}_asr"[^>]*>(\d+)<', gb_html)
-            home_score_exists = re.search(rf'id="{game_id}_hsr_big"[^>]*>(\d+)<', gb_html) or \
-                              re.search(rf'id="{game_id}_hsr"[^>]*>(\d+)<', gb_html)
-            
-            # 只有當比分元素真正存在且有 gamebox-notend 時才標記為 live
-            if away_score_exists and home_score_exists and 'gamebox-notend' in gb_html:
-                status = 'live'
-            elif away_score_exists and home_score_exists:
-                status = 'finished'
-            # 如果比分元素不存在，保持 upcoming（不設定狀態）
+            # 只有當比分不是 0:0 時才考慮 live 狀態
+            if away_score > 0 or home_score > 0:
+                if 'gamebox-notend' in gb_html:
+                    status = 'live'
+                else:
+                    status = 'finished'
+            # 0:0 的情況保持 upcoming（不設定狀態）
 
         has_qs = len(quarter_scores['away']) > 0 or len(quarter_scores['home']) > 0
         score_data[game_id] = {
