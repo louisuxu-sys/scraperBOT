@@ -302,9 +302,21 @@ def parse_live_scores(html):
         gb_end = html.find('<!--outer-gamebox-->', gb_start)
         gb_html = html[gb_start:gb_end] if gb_start > -1 and gb_end > -1 else ''
 
+        # 更準確的狀態判斷
+        status = None
         if away_score is not None and home_score is not None:
-            if 'gamebox-notend' in gb_html:
+            # 檢查是否有節比分（表示真的在進行中）
+            has_quarter_scores = len(quarter_scores['away']) > 0 or len(quarter_scores['home']) > 0
+            # 檢查是否為 0:0（可能是預設值）
+            is_zero_zero = away_score == 0 and home_score == 0
+            
+            if has_quarter_scores and 'gamebox-notend' in gb_html:
                 status = 'live'
+            elif not is_zero_zero and 'gamebox-notend' in gb_html:
+                status = 'live'
+            elif is_zero_zero and 'gamebox-notend' in gb_html:
+                # 0:0 且有 notend class，可能是未開始，保持 upcoming
+                status = None
             else:
                 status = 'finished'
 
