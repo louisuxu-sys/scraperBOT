@@ -311,11 +311,13 @@ def parse_live_scores(html):
             is_zero_zero = away_score == 0 and home_score == 0
             
             if has_quarter_scores and 'gamebox-notend' in gb_html:
+                # 有節比分 = 真的在進行中，即使是 0:0（剛開始）
                 status = 'live'
             elif not is_zero_zero and 'gamebox-notend' in gb_html:
+                # 非 0:0 比分且有 notend class
                 status = 'live'
             elif is_zero_zero and 'gamebox-notend' in gb_html:
-                # 0:0 且有 notend class，可能是未開始，保持 upcoming
+                # 0:0 且沒有節比分，可能是預設值，保持 upcoming
                 status = None
             else:
                 status = 'finished'
