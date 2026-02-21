@@ -310,16 +310,21 @@ def parse_live_scores(html):
             # 檢查是否為 0:0（可能是預設值）
             is_zero_zero = away_score == 0 and home_score == 0
             
-            if has_quarter_scores and 'gamebox-notend' in gb_html:
-                # 有節比分 = 真的在進行中，即使是 0:0（剛開始）
+            # 檢查其他可能的進行中指示器
+            has_live_indicators = (
+                'gamebox-notend' in gb_html or
+                'gamebox-live' in gb_html or
+                'quarter' in gb_html.lower() or
+                'Q1' in gb_html or
+                '第1節' in gb_html or
+                '開始' in gb_html
+            )
+            
+            if has_live_indicators:
+                # 有任何進行中指示器，標記為 live
                 status = 'live'
-            elif not is_zero_zero and 'gamebox-notend' in gb_html:
-                # 非 0:0 比分且有 notend class
-                status = 'live'
-            elif is_zero_zero and 'gamebox-notend' in gb_html:
-                # 0:0 且沒有節比分，可能是預設值，保持 upcoming
-                status = None
             else:
+                # 沒有進行中指示器，可能是已結束
                 status = 'finished'
 
         has_qs = len(quarter_scores['away']) > 0 or len(quarter_scores['home']) > 0
