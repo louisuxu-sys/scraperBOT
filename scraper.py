@@ -302,16 +302,13 @@ def parse_live_scores(html):
         gb_end = html.find('<!--outer-gamebox-->', gb_start)
         gb_html = html[gb_start:gb_end] if gb_start > -1 and gb_end > -1 else ''
 
-        # 保守狀態判斷：只有非 0:0 才標記為 live
+        # 回歸原始邏輯：簡單直接
         status = None
         if away_score is not None and home_score is not None:
-            # 只有當比分不是 0:0 時才考慮 live 狀態
-            if away_score > 0 or home_score > 0:
-                if 'gamebox-notend' in gb_html:
-                    status = 'live'
-                else:
-                    status = 'finished'
-            # 0:0 的情況保持 upcoming（不設定狀態）
+            if 'gamebox-notend' in gb_html:
+                status = 'live'
+            else:
+                status = 'finished'
 
         has_qs = len(quarter_scores['away']) > 0 or len(quarter_scores['home']) > 0
         score_data[game_id] = {
@@ -344,11 +341,21 @@ def fetch_all_games(sport='basketball', gamedate=None):
         except Exception as e:
             print(f'[Scraper] {league["name"]} error: {e}')
 
+    # 去重：同一場比賽可能出現在多個聯賽
+    seen_games = set()
+    unique_games = []
+    for game in all_games:
+        # 用隊名+時間+日期作為唯一識別碼
+        key = f"{game['away']}_{game['home']}_{game['time']}_{game['date']}"
+        if key not in seen_games:
+            seen_games.add(key)
+            unique_games.append(game)
+    
     # 排序：live > upcoming > postponed > finished
     status_order = {'live': 0, 'upcoming': 1, 'postponed': 2, 'finished': 3}
-    all_games.sort(key=lambda g: (status_order.get(g['status'], 9), g.get('time', '')))
+    unique_games.sort(key=lambda g: (status_order.get(g['status'], 9), g.get('time', '')))
 
-    return all_games
+    return unique_games
 
 
 if __name__ == '__main__':
