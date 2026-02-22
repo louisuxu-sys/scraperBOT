@@ -84,19 +84,20 @@ def fetch_playsport(ps_id, gamedate=None):
     # 從 live 模式取得比分和狀態
     score_data = parse_live_scores(live_html)
 
-    # 合併
+    # 合併：只有當 status 有值（live/finished）時才更新比分
     for game in games:
         gid = game.get('gameId')
         if gid and gid in score_data:
             sd = score_data[gid]
-            if sd.get('awayScore') is not None:
-                game['awayScore'] = sd['awayScore']
-            if sd.get('homeScore') is not None:
-                game['homeScore'] = sd['homeScore']
             if sd.get('status'):
+                # 有明確狀態（live/finished）才更新比分和狀態
                 game['status'] = sd['status']
-            if sd.get('quarterScores'):
-                game['quarterScores'] = sd['quarterScores']
+                if sd.get('awayScore') is not None:
+                    game['awayScore'] = sd['awayScore']
+                if sd.get('homeScore') is not None:
+                    game['homeScore'] = sd['homeScore']
+                if sd.get('quarterScores'):
+                    game['quarterScores'] = sd['quarterScores']
 
     return games
 
@@ -303,28 +304,51 @@ def parse_live_scores(html):
         gb_html = html[gb_start:gb_end] if gb_start > -1 and gb_end > -1 else ''
 
         # 狀態判斷：以實際顯示的區塊為準（preview / onbox）
-        # - 未開始：preview(display:block) + onbox(display:none)
-        # - 已開打/已結束：onbox(display:block)
+        # playsport HTML 結構（class 在 id 前面）：
+        #   preview: <div class="...gamebox-notend" id="gamebox-preview-XXXX" style="display:block;">
+        #   onbox:   <div class="...gamebox-notend" id="gamebox-XXXX" ...     style="display:none;">
+        # 注意：兩個 div 都可能帶 gamebox-notend class
         status = None
         if gb_html:
-            preview_visible = bool(re.search(
-                rf'id="gamebox-preview-{game_id}"[\s\S]*?style="[^"]*display\s*:\s*block',
+            # 提取 preview 整個 <div> 開頭標籤
+            preview_tag = re.search(
+                rf'<div[^>]*id="gamebox-preview-{game_id}"[^>]*>',
                 gb_html,
-                re.IGNORECASE,
-            ))
-            onbox_visible = bool(re.search(
-                rf'id="gamebox-{game_id}"[\s\S]*?style="[^"]*display\s*:\s*block',
+            )
+            preview_visible = False
+            if preview_tag:
+                tag_str = preview_tag.group(0)
+                style_m = re.search(r'style="([^"]*)"', tag_str)
+                if style_m:
+                    preview_visible = 'block' in style_m.group(1)
+
+            # 提取 onbox 整個 <div> 開頭標籤（用 (?!preview) 排除 preview）
+            onbox_tag = re.search(
+                rf'<div[^>]*id="gamebox-{game_id}"(?!-)[^>]*>',
                 gb_html,
-                re.IGNORECASE,
-            ))
+            )
+            onbox_visible = False
+            onbox_notend = False
+            if onbox_tag:
+                tag_str = onbox_tag.group(0)
+                style_m = re.search(r'style="([^"]*)"', tag_str)
+                if style_m:
+                    onbox_visible = 'block' in style_m.group(1)
+                class_m = re.search(r'class="([^"]*)"', tag_str)
+                if class_m:
+                    onbox_notend = 'gamebox-notend' in class_m.group(1)
 
             if onbox_visible:
-                status = 'live' if 'gamebox-notend' in gb_html else 'finished'
+                # 開打後的區塊正在顯示
+                status = 'live' if onbox_notend else 'finished'
             elif preview_visible:
-                status = None
+                # 賽前區塊正在顯示 → 未開始
+                status = None  # 保持 upcoming
             else:
-                if away_score is not None and home_score is not None:
-                    status = 'live' if 'gamebox-notend' in gb_html else 'finished'
+                # 都沒匹配到（備援：有真實比分就判 live）
+                if away_score is not None and home_score is not None and \
+                   (away_score > 0 or home_score > 0):
+                    status = 'live'
 
         has_qs = len(quarter_scores['away']) > 0 or len(quarter_scores['home']) > 0
         score_data[game_id] = {
