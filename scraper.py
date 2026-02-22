@@ -302,14 +302,29 @@ def parse_live_scores(html):
         gb_end = html.find('<!--outer-gamebox-->', gb_start)
         gb_html = html[gb_start:gb_end] if gb_start > -1 and gb_end > -1 else ''
 
-        # 最簡單的狀態判斷
+        # 狀態判斷：以實際顯示的區塊為準（preview / onbox）
+        # - 未開始：preview(display:block) + onbox(display:none)
+        # - 已開打/已結束：onbox(display:block)
         status = None
-        if away_score is not None and home_score is not None:
-            # 如果有 gamebox-notend class，表示進行中或未結束
-            if 'gamebox-notend' in gb_html:
-                status = 'live'
+        if gb_html:
+            preview_visible = bool(re.search(
+                rf'id="gamebox-preview-{game_id}"[\s\S]*?style="[^"]*display\s*:\s*block',
+                gb_html,
+                re.IGNORECASE,
+            ))
+            onbox_visible = bool(re.search(
+                rf'id="gamebox-{game_id}"[\s\S]*?style="[^"]*display\s*:\s*block',
+                gb_html,
+                re.IGNORECASE,
+            ))
+
+            if onbox_visible:
+                status = 'live' if 'gamebox-notend' in gb_html else 'finished'
+            elif preview_visible:
+                status = None
             else:
-                status = 'finished'
+                if away_score is not None and home_score is not None:
+                    status = 'live' if 'gamebox-notend' in gb_html else 'finished'
 
         has_qs = len(quarter_scores['away']) > 0 or len(quarter_scores['home']) > 0
         score_data[game_id] = {
