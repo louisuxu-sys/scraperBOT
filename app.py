@@ -123,10 +123,10 @@ def parse_user_message(raw_text):
         target_uid = raw[5:].strip()
         return 'remove_admin', None, 0, target_uid or None
 
-    # 管理員指令：生成序號 <期限>
-    if text.startswith('生成序號'):
-        duration = raw[4:].strip()
-        return 'gen_code', None, 0, duration or None
+    # 管理員指令：產生序號 <期限> <數量>
+    if text.startswith('產生序號') or text.startswith('生成序號'):
+        params = raw[4:].strip()
+        return 'gen_code', None, 0, params or None
 
     # 幫助
     if text in ('help', '幫助', '說明', '指令', '功能', 'menu'):
@@ -416,8 +416,10 @@ def handle_remove_admin(operator_uid, target_uid):
     return f'⚠️ {target_uid[:10]}... 不是管理員。'
 
 
-def handle_gen_code(operator_uid, duration_label):
-    """生成序號（僅管理員）"""
+def handle_gen_code(operator_uid, params):
+    """生成序號（僅管理員）
+    params: '2D 1' 或 '7D 3' 等，格式為 <期限> <數量>
+    """
     if not is_admin(operator_uid):
         return (
             '⛔ 權限不足\n'
@@ -425,30 +427,58 @@ def handle_gen_code(operator_uid, duration_label):
             '僅管理員可執行此操作。'
         )
 
-    if not duration_label:
-        options = '\n'.join([f'  ▸ {k}' for k in DURATION_OPTIONS.keys()])
+    options_list = '\n'.join([f'  ▸ {k} = {v[1]}' for k, v in DURATION_OPTIONS.items()])
+    usage_hint = f'可用期限：\n{options_list}\n\n範例：產生序號 7D 1'
+
+    if not params:
         return (
-            '🎫 生成序號\n'
+            '🎫 產生序號\n'
             '━━━━━━━━━━━━━━━\n'
-            '請指定有效期限：\n'
-            f'{options}\n\n'
-            '━━━━━━━━━━━━━━━\n'
-            '範例：生成序號 7天'
+            f'{usage_hint}'
         )
 
-    code, duration_min = generate_code(operator_uid, duration_label)
-    if not code:
-        options = '、'.join(DURATION_OPTIONS.keys())
-        return f'❌ 無效的期限。\n\n可用選項：{options}'
+    parts = params.strip().split()
+    if len(parts) < 2:
+        return (
+            '⚠️ 格式錯誤\n'
+            '━━━━━━━━━━━━━━━\n'
+            '格式：產生序號 [期限] [數量]\n\n'
+            f'{usage_hint}'
+        )
 
+    dur_key = parts[0].upper()
+    if dur_key not in DURATION_OPTIONS:
+        return (
+            f'⚠️ 無效期限【{parts[0]}】\n'
+            '━━━━━━━━━━━━━━━\n'
+            f'{usage_hint}'
+        )
+
+    try:
+        count = int(parts[1])
+        if count < 1 or count > 20:
+            return '⚠️ 數量請輸入 1~20'
+    except ValueError:
+        return '⚠️ 數量必須是數字'
+
+    display_name = DURATION_OPTIONS[dur_key][1]
+    codes = []
+    for _ in range(count):
+        code, _ = generate_code(operator_uid, dur_key)
+        if code:
+            codes.append(code)
+
+    if not codes:
+        return '❌ 序號生成失敗，請確認系統狀態。'
+
+    code_list = '\n'.join(codes)
     return (
-        '✅ 序號生成成功\n'
-        '━━━━━━━━━━━━━━━\n'
-        f'▸ 序號：{code}\n'
-        f'▸ 有效期限：{duration_label}\n\n'
+        f'✅ 已產生 {len(codes)} 組【{display_name}】序號\n'
         f'━━━━━━━━━━━━━━━\n'
-        f'用戶輸入以下內容即可開通：\n'
-        f'儲值序號 {code}'
+        f'{code_list}\n\n'
+        f'━━━━━━━━━━━━━━━\n'
+        f'用戶輸入以下格式開通：\n'
+        f'儲值序號 XXXX-XXXX-XXXX'
     )
 
 

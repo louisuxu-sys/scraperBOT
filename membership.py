@@ -53,13 +53,14 @@ db = firestore.client() if _firebase_ok else None
 # 永久管理員（從環境變數讀取）
 _ENV_ADMINS = [uid.strip() for uid in os.environ.get('ADMIN_UIDS', '').split(',') if uid.strip()]
 
-# 序號有效期限選項（分鐘）
+# 序號有效期限選項：key=指令代碼, value=(分鐘數, 中文名稱)
 DURATION_OPTIONS = {
-    '30分鐘': 30,
-    '1小時': 60,
-    '1天': 1440,
-    '7天': 10080,
-    '30天': 43200,
+    '10M': (10, '10分鐘'),
+    '1H':  (60, '1小時'),
+    '2D':  (2880, '2天'),
+    '7D':  (10080, '7天'),
+    '12D': (17280, '12天'),
+    '30D': (43200, '30天'),
 }
 
 
@@ -115,13 +116,14 @@ def _generate_code_str():
 def generate_code(admin_uid, duration_label):
     """
     管理員生成序號
-    duration_label: '30分鐘' | '1小時' | '1天' | '7天' | '30天'
+    duration_label: '10M' | '1H' | '2D' | '7D' | '12D' | '30D'
     回傳: (code_str, duration_min) 或 (None, None)
     """
-    if duration_label not in DURATION_OPTIONS or not db:
+    dur_key = duration_label.upper()
+    if dur_key not in DURATION_OPTIONS or not db:
         return None, None
 
-    duration_min = DURATION_OPTIONS[duration_label]
+    duration_min, display_name = DURATION_OPTIONS[dur_key]
 
     # 確保序號不重複
     code = _generate_code_str()
@@ -191,7 +193,7 @@ def redeem_code(uid, code):
     return True, (
         f'✅ 儲值成功！\n\n'
         f'▸ 序號：{code}\n'
-        f'▸ 時長：{code_info["duration_label"]}\n'
+        f'▸ 時長：{DURATION_OPTIONS.get(code_info["duration_label"].upper(), (0, code_info["duration_label"]))[1]}\n'
         f'▸ 到期：{expires_str}\n\n'
         f'現在可以使用賽事查詢和分析功能了！'
     )
