@@ -356,9 +356,9 @@ def format_game_text(game, sport='basketball'):
     lines = [
         f'━━━━━━━━━━━━━━━',
         f'{status}  {time_str}{win_mark}',
-        f'🏠 {home}',
-        f'🚌 {away}',
-        f'📊 {score}',
+        f'🏠 {away}',
+        f'� {score}',
+        f'� {home}',
         recommend,
     ]
 
