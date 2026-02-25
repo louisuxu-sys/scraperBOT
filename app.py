@@ -1,5 +1,5 @@
 """
-SPORTIQ LINE Bot
+新紀元 LINE Bot
 體育即時比分 · 智能分析 LINE Bot
 
 使用方式：
@@ -225,7 +225,7 @@ def build_help_message():
     """建立說明訊息"""
     return (
         '━━━━━━━━━━━━━━━\n'
-        '🏆 SPORTIQ\n'
+        '🏆 新紀元\n'
         '體育即時分析平台\n'
         '━━━━━━━━━━━━━━━\n'
         '\n'
@@ -604,7 +604,7 @@ def handle_message(event):
     if action == 'main_menu':
         reply = (
             '━━━━━━━━━━━━━━━\n'
-            '🏆 SPORTIQ\n'
+            '🏆 新紀元\n'
             '體育即時分析平台\n'
             '━━━━━━━━━━━━━━━\n'
             '\n'
@@ -721,7 +721,7 @@ keep_alive()
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f'========================================')
-    print(f'  SPORTIQ LINE Bot')
+    print(f'  新紀元 LINE Bot')
     print(f'  http://localhost:{port}')
     print(f'========================================')
     print(f'  Webhook URL: https://你的網域/callback')

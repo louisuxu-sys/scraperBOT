@@ -439,7 +439,7 @@ def format_all_games_text(games, sport='basketball', date_str=''):
         groups[league].append(g)
 
     lines = [
-        f'{sport_emoji} SPORTIQ 賽事',
+        f'{sport_emoji} 新紀元 賽事',
         f'━━━━━━━━━━━━━━━',
     ]
     if date_str:
