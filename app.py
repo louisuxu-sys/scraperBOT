@@ -35,6 +35,7 @@ from analyzer import (
     format_all_games_text,
     format_analysis_text,
     format_game_text,
+    format_yesterday_results,
     generate_analysis,
 )
 from membership import (
@@ -132,9 +133,20 @@ def parse_user_message(raw_text):
     if text in ('help', '幫助', '說明', '指令', '功能', 'menu'):
         return 'help', None, 0, None
 
-    # 查詢到期
+    # 查詢到期（保留指令）
     if text in ('查詢到期', '到期', '到期日', '會員到期'):
         return 'check_expiry', None, 0, None
+
+    # 昨日賽果：第一層 → 選球類
+    if text in ('昨日賽果', '昨日結算', '昨天賽果'):
+        return 'yesterday_select_sport', None, -1, None
+
+    # 昨日賽果：第二層 → 顯示結算（由 QR 按鈕觸發）
+    if text.startswith('昨日賽果 '):
+        sport_name = text[5:].strip()
+        sport_key = {v: k for k, v in {'basketball': '籃球', 'baseball': '棒球', 'soccer': '足球', 'hockey': '冰球', 'tennis': '網球'}.items()}.get(sport_name)
+        if sport_key:
+            return 'yesterday_list', sport_key, -1, None
 
     # 儲值序號
     if text.startswith('儲值序號'):
@@ -511,9 +523,21 @@ def build_main_menu_qr():
     return [
         QuickReplyItem(action=MessageAction(label='🏆 今日賽事', text='今日賽事')),
         QuickReplyItem(action=MessageAction(label='📅 明日賽事', text='明日賽事')),
-        QuickReplyItem(action=MessageAction(label='🔍 查詢到期', text='查詢到期')),
+        QuickReplyItem(action=MessageAction(label='� 昨日賽果', text='昨日賽果')),
         QuickReplyItem(action=MessageAction(label='💰 儲值序號', text='儲值序號')),
     ]
+
+
+def build_yesterday_sport_qr():
+    """昨日賽果第二層：選球類"""
+    items = []
+    for s in SPORT_OPTIONS:
+        label = f'{s["emoji"]} {s["name"]}'
+        items.append(QuickReplyItem(action=MessageAction(label=label, text=f'昨日賽果 {s["name"]}')))
+    items.append(
+        QuickReplyItem(action=MessageAction(label='↩ 返回主選單', text='返回主選單'))
+    )
+    return items
 
 
 def build_sport_select_qr(date_offset=0):
@@ -598,6 +622,21 @@ def handle_message(event):
         reply = handle_gen_code(uid, keyword)
     elif action == 'check_expiry':
         reply = handle_check_expiry(uid)
+    elif action == 'yesterday_select_sport':
+        display_date = get_display_date(-1)
+        reply = (
+            f'📋 昨日賽果\n'
+            f'━━━━━━━━━━━━━━━\n'
+            f'📅 {display_date}\n\n'
+            f'👇 選擇要查看的球類'
+        )
+        qr_items = build_yesterday_sport_qr()
+    elif action == 'yesterday_list':
+        gamedate = get_date_str(-1)
+        display_date = get_display_date(-1)
+        yesterday_games = get_games_cached(sport, gamedate)
+        reply = format_yesterday_results(yesterday_games, sport, display_date)
+        qr_items = build_yesterday_sport_qr()
     elif action == 'redeem':
         if not keyword:
             _user_waiting_redeem.add(uid)
