@@ -482,46 +482,25 @@ def format_yesterday_results(games, sport='basketball', date_str=''):
 
     hit = 0
     total_rec = 0
-
     result_lines = []
+
     for game in finished:
         home = game.get('home', '—')
         away = game.get('away', '—')
         hs = game.get('homeScore')
         a_s = game.get('awayScore')
-        time_str = game.get('time', '')
 
         if hs is not None and a_s is not None:
-            score = f'{a_s} : {hs}'
             hs_int, as_int = int(hs), int(a_s)
             winner = home if hs_int > as_int else (away if as_int > hs_int else None)
         else:
-            score = '— : —'
             winner = None
 
-        # 重新計算推薦（跟 format_game_text 一樣的邏輯）
-        odds = game.get('odds', {})
+        # 計算推薦方
         analysis = generate_analysis(game, sport)
         hw = analysis['homeWin']
         aw = analysis['awayWin']
-        diff = abs(hw - aw)
         fav = home if hw >= aw else away
-
-        try:
-            spread_val = float(odds.get('spread', '0'))
-        except (ValueError, TypeError):
-            spread_val = 0
-        abs_spread = abs(spread_val)
-
-        if diff > 20 and abs_spread > 0:
-            rec_text = f'{fav} 讓 {abs_spread} 分'
-        elif diff > 10:
-            rec_text = f'{fav} 獨贏'
-        elif spread_val != 0:
-            dog_team = away if spread_val > 0 else home
-            rec_text = f'{dog_team} 受讓 {abs_spread} 分'
-        else:
-            rec_text = f'{fav} 獨贏'
 
         # 判斷命中
         total_rec += 1
@@ -532,24 +511,19 @@ def format_yesterday_results(games, sport='basketball', date_str=''):
             mark = '❌'
         else:
             mark = '➖'
-            total_rec -= 1  # 平局不計入
+            total_rec -= 1
 
-        result_lines.append(f'━━━━━━━━━━━━━━━')
-        result_lines.append(f'⏰ {time_str}')
-        result_lines.append(f'🏠 {away}')
-        result_lines.append(f'📊 {score}')
-        result_lines.append(f'🚌 {home}')
-        result_lines.append(f'🔮 推薦：{rec_text}  {mark}')
+        result_lines.append(f'{mark} {away} VS {home}')
 
-    # 勝率統計
     rate = round(hit / total_rec * 100, 1) if total_rec > 0 else 0
 
     header = [
         f'{sport_emoji} 昨日賽果結算',
         f'━━━━━━━━━━━━━━━',
         f'📅 {date_str}',
-        f'📊 共 {len(finished)} 場已結束',
+        f'📊 共 {len(finished)} 場',
         f'🎯 命中：{hit}/{total_rec}（{rate}%）',
+        f'━━━━━━━━━━━━━━━',
     ]
 
     return '\n'.join(header + [''] + result_lines)
