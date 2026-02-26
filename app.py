@@ -683,18 +683,39 @@ def handle_message(event):
     else:
         reply = build_help_message()
 
-    # LINE 訊息長度限制 5000 字
-    if len(reply) > 5000:
-        reply = reply[:4950] + '\n\n... (訊息過長，已截斷)'
-
+    # LINE 每條訊息限制 5000 字，reply 最多 5 條
     quick_reply = QuickReply(items=qr_items[:13])
+
+    if len(reply) <= 4500:
+        messages = [TextMessage(text=reply, quick_reply=quick_reply)]
+    else:
+        # 按聯賽區塊分割（雙換行）
+        chunks = []
+        current = ''
+        for block in reply.split('\n\n'):
+            if current and len(current) + len(block) + 2 > 4500:
+                chunks.append(current.strip())
+                current = block
+            else:
+                current = current + '\n\n' + block if current else block
+        if current.strip():
+            chunks.append(current.strip())
+
+        # LINE 最多 5 條訊息
+        chunks = chunks[:5]
+        messages = []
+        for i, chunk in enumerate(chunks):
+            if i == len(chunks) - 1:
+                messages.append(TextMessage(text=chunk, quick_reply=quick_reply))
+            else:
+                messages.append(TextMessage(text=chunk))
 
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
         line_bot_api.reply_message_with_http_info(
             ReplyMessageRequest(
                 reply_token=event.reply_token,
-                messages=[TextMessage(text=reply, quick_reply=quick_reply)]
+                messages=messages
             )
         )
 
