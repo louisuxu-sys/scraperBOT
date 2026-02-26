@@ -377,9 +377,9 @@ def format_game_text(game, sport='basketball'):
     lines = [
         f'━━━━━━━━━━━━━━━',
         f'{status}  {time_str}{win_mark}',
-        f'� {away}',
+        f'● {away}',
         f'📊 {score}',
-        f'🏠 {home}',
+        f'○ {home}',
         recommend,
     ]
 
@@ -404,20 +404,20 @@ def format_analysis_text(game, sport='basketball'):
     lines = [
         f'⚡ 賽事分析',
         f'━━━━━━━━━━━━━━━',
-        f'🏠 {home}',
-        f'🚌 {away}',
+        f'○ {home}',
+        f'● {away}',
         f'',
         f'📈 勝率預測',
-        f'主 {h_bar} {hw}%',
+        f'○ {h_bar} {hw}%',
     ]
 
     if sport != 'basketball':
         dw = analysis['draw']
         d_bar = '█' * round(dw / 100 * bar_len)
-        lines.append(f'平 {d_bar} {dw}%')
+        lines.append(f'◎ {d_bar} {dw}%')
 
     lines.extend([
-        f'客 {a_bar} {aw}%',
+        f'● {a_bar} {aw}%',
         f'',
         f'🎯 信心指數：{analysis["confidence"]}%',
     ])
@@ -582,9 +582,9 @@ def format_yesterday_results(games, sport='basketball', date_str=''):
 
         result_lines.append(f'━━━━━━━━━━━━━━━')
         result_lines.append(f'⏰ {time_str}')
-        result_lines.append(f'� {away}')
+        result_lines.append(f'● {away}')
         result_lines.append(f'📊 {score}')
-        result_lines.append(f'🏠 {home}')
+        result_lines.append(f'○ {home}')
         result_lines.append(f'🔮 推薦：{rec_text}  {mark}')
 
     rate = round(hit / total_rec * 100, 1) if total_rec > 0 else 0
