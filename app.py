@@ -523,7 +523,7 @@ def build_main_menu_qr():
     return [
         QuickReplyItem(action=MessageAction(label='🏆 今日賽事', text='今日賽事')),
         QuickReplyItem(action=MessageAction(label='📅 明日賽事', text='明日賽事')),
-        QuickReplyItem(action=MessageAction(label='� 昨日賽果', text='昨日賽果')),
+        QuickReplyItem(action=MessageAction(label='📋 昨日賽果', text='昨日賽果')),
         QuickReplyItem(action=MessageAction(label='💰 儲值序號', text='儲值序號')),
     ]
 

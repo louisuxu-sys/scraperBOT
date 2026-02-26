@@ -469,7 +469,7 @@ def format_all_games_text(games, sport='basketball', date_str=''):
     lines.append('')
 
     for league, league_games in groups.items():
-        lines.append(f'\n�── {league}【{len(league_games)} 場】──')
+        lines.append(f'\n🏆── {league}【{len(league_games)} 場】──')
         for g in league_games:
             lines.append(format_game_text(g, sport))
         lines.append('')
