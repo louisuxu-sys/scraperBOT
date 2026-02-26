@@ -320,23 +320,17 @@ def format_game_text(game, sport='basketball'):
     dog = away if hw >= aw else home
     exp_total = analysis.get('expectedTotal', 0)
 
-    # 推薦獲勝標記
-    win_mark = ''
-    if game.get('status') == 'finished' and game.get('homeScore') is not None:
-        hs = int(game['homeScore'])
-        a_s = int(game['awayScore'])
-        winner = home if hs > a_s else away
-        if winner == fav:
-            win_mark = ' 🎯✔'
-
     try:
         spread_val = float(odds.get('spread', '0'))
     except (ValueError, TypeError):
         spread_val = 0
     abs_spread = abs(spread_val)
 
+    # 推薦類型
+    rec_type = 'win'
     if diff > 20 and abs_spread > 0:
         recommend = f'🔮 推薦：{fav} 讓 {abs_spread} 分'
+        rec_type = 'spread_fav'
     elif diff > 20:
         recommend = f'🔮 推薦：{fav} 獨贏'
     elif diff > 10:
@@ -344,6 +338,7 @@ def format_game_text(game, sport='basketball'):
     elif spread_val != 0:
         dog_team = away if spread_val > 0 else home
         recommend = f'🔮 推薦：{dog_team} 受讓 {abs_spread} 分'
+        rec_type = 'spread_dog'
     elif exp_total > 0:
         total_line = round(exp_total / 5) * 5
         if analysis.get('confidence', 50) >= 55:
@@ -352,6 +347,30 @@ def format_game_text(game, sport='basketball'):
             recommend = f'🔮 推薦：小 {total_line} 分'
     else:
         recommend = f'🔮 推薦：{fav} 獨贏'
+
+    # 推薦過盤標記（依實際盤口判斷）
+    win_mark = ''
+    if game.get('status') == 'finished' and game.get('homeScore') is not None:
+        hs_int = int(game['homeScore'])
+        as_int = int(game['awayScore'])
+        score_diff = hs_int - as_int  # 主隊 - 客隊
+
+        if rec_type == 'spread_fav':
+            if fav == home:
+                covered = (score_diff - abs_spread) > 0
+            else:
+                covered = (-score_diff - abs_spread) > 0
+        elif rec_type == 'spread_dog':
+            dt = away if spread_val > 0 else home
+            if dt == home:
+                covered = (score_diff + abs_spread) > 0
+            else:
+                covered = (-score_diff + abs_spread) > 0
+        else:
+            covered = (fav == home and score_diff > 0) or (fav == away and score_diff < 0)
+
+        if covered:
+            win_mark = ' 🎯✔'
 
     lines = [
         f'━━━━━━━━━━━━━━━',
