@@ -515,9 +515,9 @@ def format_all_games_text(games, sport='basketball', date_str=''):
     return '\n'.join(lines)
 
 
-def format_yesterday_results(games, sport='basketball', date_str=''):
+def format_yesterday_results(games, sport='basketball', date_str='', title='昨日賽果'):
     """
-    格式化昨日賽果結算：只顯示已結束的比賽，標記推薦是否命中
+    格式化賽果結算：只顯示已結束的比賽，標記推薦是否命中
     """
     sport_emoji = {
         'basketball': '🏀', 'baseball': '⚾',
@@ -529,10 +529,10 @@ def format_yesterday_results(games, sport='basketball', date_str=''):
 
     if not finished:
         return (
-            f'{sport_emoji} 昨日賽果\n'
+            f'{sport_emoji} {title}\n'
             f'━━━━━━━━━━━━━━━\n'
             f'📅 {date_str}\n\n'
-            f'昨日無已結束的賽事資料。'
+            f'無已結束的賽事資料。'
         )
 
     hit = 0
@@ -624,7 +624,7 @@ def format_yesterday_results(games, sport='basketball', date_str=''):
     rate = round(hit / total_rec * 100, 1) if total_rec > 0 else 0
 
     header = [
-        f'{sport_emoji} 昨日賽果結算',
+        f'{sport_emoji} {title}結算',
         f'━━━━━━━━━━━━━━━',
         f'📅 {date_str}',
         f'📊 共 {len(finished)} 場已結束',

@@ -727,7 +727,7 @@ def handle_message(event):
 
             if action == 'menu_games_results':
                 # 賽果模式：用 format_yesterday_results 顯示結算
-                reply = format_yesterday_results(league_games, sport, display_date)
+                reply = format_yesterday_results(league_games, sport, display_date, title=cmd_label)
                 qr_items = build_league_qr(sport, f'{cmd_label} {sport_name}')
             else:
                 # 賽事模式：用 format_league_games_text 顯示賽事
