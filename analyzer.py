@@ -356,9 +356,9 @@ def format_game_text(game, sport='basketball'):
     lines = [
         f'━━━━━━━━━━━━━━━',
         f'{status}  {time_str}{win_mark}',
-        f'🏠 {away}',
-        f'� {score}',
-        f'� {home}',
+        f'🔴 {away}',
+        f'📊 {score}',
+        f'🔵 {home}',
         recommend,
     ]
 
@@ -513,32 +513,57 @@ def format_yesterday_results(games, sport='basketball', date_str=''):
             spread_val = 0
         abs_spread = abs(spread_val)
 
+        # 推薦類型與文字
+        rec_type = 'win'  # 預設獨贏
         if diff > 20 and abs_spread > 0:
             rec_text = f'{fav} 讓 {abs_spread} 分'
+            rec_type = 'spread_fav'
         elif diff > 10:
             rec_text = f'{fav} 獨贏'
         elif spread_val != 0:
             dog_team = away if spread_val > 0 else home
             rec_text = f'{dog_team} 受讓 {abs_spread} 分'
+            rec_type = 'spread_dog'
         else:
             rec_text = f'{fav} 獨贏'
 
-        # 判斷命中
+        # 判斷是否過盤
         total_rec += 1
-        if winner and winner == fav:
-            mark = '✅'
-            hit += 1
-        elif winner and winner != fav:
-            mark = '❌'
+        if hs is not None and a_s is not None:
+            hs_int, as_int = int(hs), int(a_s)
+            score_diff = hs_int - as_int  # 主隊 - 客隊
+
+            if rec_type == 'spread_fav':
+                # 讓分盤：推薦方讓分後是否仍贏
+                if fav == home:
+                    covered = (score_diff - abs_spread) > 0
+                else:
+                    covered = (-score_diff - abs_spread) > 0
+            elif rec_type == 'spread_dog':
+                # 受讓盤：受讓方加分後是否贏
+                dog_team = away if spread_val > 0 else home
+                if dog_team == home:
+                    covered = (score_diff + abs_spread) > 0
+                else:
+                    covered = (-score_diff + abs_spread) > 0
+            else:
+                # 獨贏盤：推薦方是否贏球
+                covered = (fav == home and score_diff > 0) or (fav == away and score_diff < 0)
+
+            if covered:
+                mark = '✅'
+                hit += 1
+            else:
+                mark = '❌'
         else:
             mark = '➖'
             total_rec -= 1
 
         result_lines.append(f'━━━━━━━━━━━━━━━')
         result_lines.append(f'⏰ {time_str}')
-        result_lines.append(f'🏠 {away}')
+        result_lines.append(f'🔴 {away}')
         result_lines.append(f'📊 {score}')
-        result_lines.append(f'🚌 {home}')
+        result_lines.append(f'� {home}')
         result_lines.append(f'🔮 推薦：{rec_text}  {mark}')
 
     rate = round(hit / total_rec * 100, 1) if total_rec > 0 else 0
