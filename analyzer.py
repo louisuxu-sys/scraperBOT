@@ -377,7 +377,7 @@ def format_game_text(game, sport='basketball'):
         f'{status}  {time_str}{win_mark}',
         f'🔴 {away}',
         f'📊 {score}',
-        f'🔵 {home}',
+        f'⚪ {home}',
         recommend,
     ]
 
@@ -582,7 +582,7 @@ def format_yesterday_results(games, sport='basketball', date_str=''):
         result_lines.append(f'⏰ {time_str}')
         result_lines.append(f'🔴 {away}')
         result_lines.append(f'📊 {score}')
-        result_lines.append(f'� {home}')
+        result_lines.append(f'⚪ {home}')
         result_lines.append(f'🔮 推薦：{rec_text}  {mark}')
 
     rate = round(hit / total_rec * 100, 1) if total_rec > 0 else 0
