@@ -33,6 +33,7 @@ from linebot.v3.exceptions import InvalidSignatureError
 from scraper import fetch_all_games, PS_LEAGUES
 from analyzer import (
     format_all_games_text,
+    format_league_games_text,
     format_analysis_text,
     format_game_text,
     format_yesterday_results,
@@ -137,17 +138,6 @@ def parse_user_message(raw_text):
     if text in ('查詢到期', '到期', '到期日', '會員到期'):
         return 'check_expiry', None, 0, None
 
-    # 昨日賽果：第一層 → 選球類
-    if text in ('昨日賽果', '昨日結算', '昨天賽果'):
-        return 'yesterday_select_sport', None, -1, None
-
-    # 昨日賽果：第二層 → 顯示結算（由 QR 按鈕觸發）
-    if text.startswith('昨日賽果 '):
-        sport_name = text[5:].strip()
-        sport_key = {v: k for k, v in {'basketball': '籃球', 'baseball': '棒球', 'soccer': '足球', 'hockey': '冰球', 'tennis': '網球'}.items()}.get(sport_name)
-        if sport_key:
-            return 'yesterday_list', sport_key, -1, None
-
     # 儲值序號
     if text.startswith('儲值序號'):
         code = raw[4:].strip()
@@ -159,15 +149,40 @@ def parse_user_message(raw_text):
     if text in ('主選單', '選單', '返回', '返回主選單'):
         return 'main_menu', None, 0, None
 
-    # 今日賽事 / 明日賽事：觸發運動選單
-    if text in ('今日賽事', '賽事', '今天'):
-        return 'select_sport', None, 0, None
-    if text in ('明日賽事',):
-        return 'select_sport', None, 1, None
+    # ===== 四層選單系統 =====
+    # 格式：「功能 球類 聯賽」
+    MENU_CMDS = {
+        '今日賽事': 0, '明日賽事': 1, '昨日賽果': -1, '今日賽果': 0,
+    }
+    SPORT_NAME_MAP = {v: k for k, v in {
+        'basketball': '籃球', 'baseball': '棒球',
+        'soccer': '足球', 'hockey': '冰球', 'tennis': '網球'
+    }.items()}
+
+    for cmd, offset in MENU_CMDS.items():
+        if text == cmd:
+            # 第一層 → 第二層：選球類
+            action_type = 'results' if '賽果' in cmd else 'events'
+            return f'menu_sport_{action_type}', None, offset, None
+        if text.startswith(cmd + ' '):
+            rest = text[len(cmd)+1:].strip()
+            parts = rest.split(' ', 1)
+            sport_name = parts[0]
+            sport_key = SPORT_NAME_MAP.get(sport_name)
+            if sport_key:
+                if len(parts) == 1:
+                    # 第二層 → 第三層：選聯賽
+                    action_type = 'results' if '賽果' in cmd else 'events'
+                    return f'menu_league_{action_type}', sport_key, offset, cmd
+                else:
+                    # 第三層 → 第四層：顯示聯賽賽事
+                    league_name = parts[1]
+                    action_type = 'results' if '賽果' in cmd else 'events'
+                    return f'menu_games_{action_type}', sport_key, offset, league_name
 
     # 返回運動選擇
     if text in ('返回運動選擇', '選運動'):
-        return 'select_sport', None, 0, None
+        return 'menu_sport_events', None, 0, None
 
     # 日期偏移
     date_offset = 0
@@ -524,56 +539,65 @@ def build_main_menu_qr():
         QuickReplyItem(action=MessageAction(label='🏆 今日賽事', text='今日賽事')),
         QuickReplyItem(action=MessageAction(label='📅 明日賽事', text='明日賽事')),
         QuickReplyItem(action=MessageAction(label='📋 昨日賽果', text='昨日賽果')),
-        QuickReplyItem(action=MessageAction(label='💰 儲值序號', text='儲值序號')),
+        QuickReplyItem(action=MessageAction(label='� 今日賽果', text='今日賽果')),
+        QuickReplyItem(action=MessageAction(label='� 儲值序號', text='儲值序號')),
     ]
 
 
-def build_yesterday_sport_qr():
-    """昨日賽果第二層：選球類"""
+def build_sport_qr(cmd_prefix):
+    """第二層：選球類（通用）"""
     items = []
     for s in SPORT_OPTIONS:
         label = f'{s["emoji"]} {s["name"]}'
-        items.append(QuickReplyItem(action=MessageAction(label=label, text=f'昨日賽果 {s["name"]}')))
+        items.append(QuickReplyItem(action=MessageAction(label=label, text=f'{cmd_prefix} {s["name"]}')))
     items.append(
         QuickReplyItem(action=MessageAction(label='↩ 返回主選單', text='返回主選單'))
     )
     return items
 
 
-def build_sport_select_qr(date_offset=0):
-    """第二層：選運動類型"""
-    prefix = '' if date_offset == 0 else '明天 '
+def build_league_qr(sport_key, cmd_prefix):
+    """第三層：選聯賽"""
+    leagues = PS_LEAGUES.get(sport_key, [])
     items = []
-    for s in SPORT_OPTIONS:
-        label = f'{s["emoji"]} {s["name"]}'
-        cmd = f'{prefix}{s["name"]}' if prefix else s['name']
-        items.append(QuickReplyItem(action=MessageAction(label=label, text=cmd.strip())))
+    for lg in leagues:
+        label = lg['name']
+        if len(label) > 12:
+            label = label[:12]
+        items.append(QuickReplyItem(action=MessageAction(
+            label=label, text=f'{cmd_prefix} {lg["name"]}'
+        )))
     items.append(
-        QuickReplyItem(action=MessageAction(label='↩ 返回主選單', text='返回主選單'))
+        QuickReplyItem(action=MessageAction(label='↩ 返回球類', text=cmd_prefix.rsplit(' ', 1)[0] if ' ' in cmd_prefix else cmd_prefix))
+    )
+    items.append(
+        QuickReplyItem(action=MessageAction(label='🏠 主選單', text='返回主選單'))
     )
     return items
 
 
-def build_game_qr(game_list, sport_name=''):
-    """第三層：每場比賽的分析按鈕"""
+def build_game_qr(game_list, cmd_prefix=''):
+    """第四層：每場比賽的分析按鈕"""
     game_buttons = []
     seen = set()
     for g in game_list:
         home = g.get('home', '')
         away = g.get('away', '')
         if home and home != '—' and home not in seen:
-            # 顯示「客隊 vs 主隊」讓用戶清楚是哪場比賽
             vs_text = f'{away}v{home}' if away and away != '—' else home
             label = f'📊 {vs_text[:10]}' if len(vs_text) > 10 else f'📊 {vs_text}'
             game_buttons.append(
                 QuickReplyItem(action=MessageAction(label=label, text=f'分析 {home}'))
             )
             seen.add(home)
-        if len(game_buttons) >= 11:  # 留 2 個給返回按鈕
+        if len(game_buttons) >= 10:
             break
-    game_buttons.append(
-        QuickReplyItem(action=MessageAction(label='↩ 返回運動選擇', text='返回運動選擇'))
-    )
+    # 返回聯賽選擇
+    if cmd_prefix:
+        back_cmd = ' '.join(cmd_prefix.split(' ')[:2])  # e.g. "今日賽事 籃球"
+        game_buttons.append(
+            QuickReplyItem(action=MessageAction(label='↩ 返回聯賽', text=back_cmd))
+        )
     game_buttons.append(
         QuickReplyItem(action=MessageAction(label='🏠 主選單', text='返回主選單'))
     )
@@ -600,6 +624,9 @@ def handle_message(event):
     game_list = []
     qr_items = build_main_menu_qr()  # 預設回到第一層
 
+    SPORT_DISPLAY = {'basketball': '籃球', 'baseball': '棒球', 'soccer': '足球',
+                      'hockey': '冰球', 'tennis': '網球'}
+
     # 不需要會員的指令
     if action == 'main_menu':
         reply = (
@@ -622,28 +649,29 @@ def handle_message(event):
         reply = handle_gen_code(uid, keyword)
     elif action == 'check_expiry':
         reply = handle_check_expiry(uid)
-    elif action == 'yesterday_select_sport':
-        display_date = get_display_date(-1)
-        reply = (
-            f'📋 昨日賽果\n'
-            f'━━━━━━━━━━━━━━━\n'
-            f'📅 {display_date}\n\n'
-            f'👇 選擇要查看的球類'
-        )
-        qr_items = build_yesterday_sport_qr()
-    elif action == 'yesterday_list':
-        gamedate = get_date_str(-1)
-        display_date = get_display_date(-1)
-        yesterday_games = get_games_cached(sport, gamedate)
-        reply = format_yesterday_results(yesterday_games, sport, display_date)
-        qr_items = build_yesterday_sport_qr()
     elif action == 'redeem':
         if not keyword:
             _user_waiting_redeem.add(uid)
         reply = handle_redeem(uid, keyword)
 
-    # 需要會員的指令
-    elif action in ('select_sport', 'list', 'analysis'):
+    # ===== 四層選單：第二層 選球類 =====
+    elif action in ('menu_sport_events', 'menu_sport_results'):
+        display_date = get_display_date(date_offset)
+        cmd_map = {0: '今日賽事', 1: '明日賽事', -1: '昨日賽果'}
+        if action == 'menu_sport_results' and date_offset == 0:
+            cmd_label = '今日賽果'
+        else:
+            cmd_label = cmd_map.get(date_offset, '今日賽事')
+        reply = (
+            f'🏆 {cmd_label}\n'
+            f'━━━━━━━━━━━━━━━\n'
+            f'📅 {display_date}\n\n'
+            f'👇 選擇要查看的球類'
+        )
+        qr_items = build_sport_qr(cmd_label)
+
+    # ===== 四層選單：第三層 選聯賽 =====
+    elif action in ('menu_league_events', 'menu_league_results'):
         if not is_member_active(uid):
             reply = (
                 '🔒 權限不足\n'
@@ -653,27 +681,91 @@ def handle_message(event):
                 '  格式：儲值序號 XXXX-XXXX-XXXX\n\n'
                 '▸ 輸入「查詢到期」可查看會員狀態'
             )
-        elif action == 'select_sport':
-            _user_session[uid] = {'date_offset': date_offset, 'sport': None}
+        else:
             display_date = get_display_date(date_offset)
+            sport_name = SPORT_DISPLAY.get(sport, '')
+            cmd_prefix = keyword  # e.g. "今日賽事"
+            leagues = PS_LEAGUES.get(sport, [])
+            league_names = ', '.join(lg['name'] for lg in leagues)
             reply = (
-                f'🏆 選擇運動類型\n'
+                f'🏆 {cmd_prefix} — {sport_name}\n'
                 f'━━━━━━━━━━━━━━━\n'
                 f'📅 {display_date}\n\n'
-                f'👇 點擊下方按鈕選擇想查看的運動'
+                f'📋 共 {len(leagues)} 個聯賽\n'
+                f'{league_names}\n\n'
+                f'👇 選擇要查看的聯賽'
             )
-            qr_items = build_sport_select_qr(date_offset)
-        elif action == 'list':
+            qr_items = build_league_qr(sport, f'{cmd_prefix} {sport_name}')
+
+    # ===== 四層選單：第四層 顯示聯賽賽事/賽果 =====
+    elif action in ('menu_games_events', 'menu_games_results'):
+        if not is_member_active(uid):
+            reply = (
+                '🔒 權限不足\n'
+                '━━━━━━━━━━━━━━━\n'
+                '此功能需要會員資格\n\n'
+                '▸ 請先儲值序號來開通會員\n'
+                '  格式：儲值序號 XXXX-XXXX-XXXX\n\n'
+                '▸ 輸入「查詢到期」可查看會員狀態'
+            )
+        else:
+            league_name = keyword  # e.g. "NBA"
+            gamedate = get_date_str(date_offset)
+            display_date = get_display_date(date_offset)
+            all_games = get_games_cached(sport, gamedate)
+            # 篩選該聯賽的比賽
+            league_games = [g for g in all_games if g.get('league') == league_name]
             _user_session[uid] = {'date_offset': date_offset, 'sport': sport}
-            sport_name = {'basketball': '籃球', 'baseball': '棒球', 'soccer': '足球',
-                          'hockey': '冰球', 'tennis': '網球'}.get(sport or '', '')
-            reply, game_list = handle_list(sport or 'basketball', date_offset)
-            if game_list:
-                qr_items = build_game_qr(game_list, sport_name)
+
+            sport_name = SPORT_DISPLAY.get(sport, '')
+            cmd_map = {0: '今日賽事', 1: '明日賽事', -1: '昨日賽果'}
+            if action == 'menu_games_results' and date_offset == 0:
+                cmd_label = '今日賽果'
             else:
-                qr_items = build_sport_select_qr(date_offset)
+                cmd_label = cmd_map.get(date_offset, '今日賽事')
+            cmd_prefix = f'{cmd_label} {sport_name} {league_name}'
+
+            if action == 'menu_games_results':
+                # 賽果模式：用 format_yesterday_results 顯示結算
+                reply = format_yesterday_results(league_games, sport, display_date)
+                qr_items = build_league_qr(sport, f'{cmd_label} {sport_name}')
+            else:
+                # 賽事模式：用 format_league_games_text 顯示賽事
+                reply = format_league_games_text(league_games, league_name, sport, display_date)
+                qr_items = build_game_qr(league_games, cmd_prefix)
+
+    # ===== 舊的直接輸入運動名稱（相容）=====
+    elif action in ('list', 'analysis'):
+        if not is_member_active(uid):
+            reply = (
+                '🔒 權限不足\n'
+                '━━━━━━━━━━━━━━━\n'
+                '此功能需要會員資格\n\n'
+                '▸ 請先儲值序號來開通會員\n'
+                '  格式：儲值序號 XXXX-XXXX-XXXX\n\n'
+                '▸ 輸入「查詢到期」可查看會員狀態'
+            )
+        elif action == 'list':
+            # 直接輸入球類名稱 → 跳到第三層選聯賽
+            sport_name = SPORT_DISPLAY.get(sport or '', '')
+            cmd_prefix = f'今日賽事 {sport_name}'
+            if date_offset == 1:
+                cmd_prefix = f'明日賽事 {sport_name}'
+            elif date_offset == -1:
+                cmd_prefix = f'昨日賽果 {sport_name}'
+            display_date = get_display_date(date_offset)
+            leagues = PS_LEAGUES.get(sport, [])
+            league_names = ', '.join(lg['name'] for lg in leagues)
+            reply = (
+                f'🏆 {cmd_prefix}\n'
+                f'━━━━━━━━━━━━━━━\n'
+                f'📅 {display_date}\n\n'
+                f'📋 共 {len(leagues)} 個聯賽\n'
+                f'{league_names}\n\n'
+                f'👇 選擇要查看的聯賽'
+            )
+            qr_items = build_league_qr(sport, cmd_prefix)
         elif action == 'analysis':
-            # 如果用戶沒有明確指定日期或運動，使用上次瀏覽的 session
             session = _user_session.get(uid, {})
             if date_offset == 0 and session.get('date_offset'):
                 date_offset = session['date_offset']

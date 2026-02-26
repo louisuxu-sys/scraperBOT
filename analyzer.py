@@ -435,6 +435,40 @@ def format_analysis_text(game, sport='basketball'):
     return '\n'.join(lines)
 
 
+def format_league_games_text(games, league_name, sport='basketball', date_str=''):
+    """
+    格式化單一聯賽的比賽為 LINE 訊息
+    """
+    sport_emoji = {
+        'basketball': '🏀', 'baseball': '⚾',
+        'soccer': '⚽', 'hockey': '🏒', 'tennis': '🎾'
+    }.get(sport, '🏆')
+
+    if not games:
+        return (
+            f'{sport_emoji} {league_name}\n'
+            f'━━━━━━━━━━━━━━━\n'
+            f'📅 {date_str}\n\n'
+            f'該聯賽目前無賽事資料。'
+        )
+
+    lines = [
+        f'{sport_emoji} {league_name}',
+        f'━━━━━━━━━━━━━━━',
+    ]
+    if date_str:
+        lines.append(f'📅 {date_str}')
+    lines.append(f'📊 共 {len(games)} 場賽事')
+    lines.append('')
+
+    for g in games:
+        lines.append(format_game_text(g, sport))
+
+    lines.append('')
+    lines.append(f'👇 點擊下方按鈕查看詳細分析')
+    return '\n'.join(lines)
+
+
 def format_all_games_text(games, sport='basketball', date_str=''):
     """
     格式化所有比賽為 LINE 訊息
