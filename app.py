@@ -165,8 +165,8 @@ def parse_user_message(raw_text):
             action_type = 'results' if '賽果' in cmd else 'events'
             return f'menu_sport_{action_type}', None, offset, None
         if text.startswith(cmd + ' '):
-            rest = text[len(cmd)+1:].strip()
-            parts = rest.split(' ', 1)
+            rest_raw = raw[len(cmd)+1:].strip()  # 用原始文字保留大小寫
+            parts = rest_raw.split(' ', 1)
             sport_name = parts[0]
             sport_key = SPORT_NAME_MAP.get(sport_name)
             if sport_key:
@@ -175,7 +175,7 @@ def parse_user_message(raw_text):
                     action_type = 'results' if '賽果' in cmd else 'events'
                     return f'menu_league_{action_type}', sport_key, offset, cmd
                 else:
-                    # 第三層 → 第四層：顯示聯賽賽事
+                    # 第三層 → 第四層：顯示聯賽賽事（保留原始大小寫）
                     league_name = parts[1]
                     action_type = 'results' if '賽果' in cmd else 'events'
                     return f'menu_games_{action_type}', sport_key, offset, league_name
@@ -203,7 +203,7 @@ def parse_user_message(raw_text):
 
     # 比分指令
     if text in ('比分', '即時比分', 'score', 'scores', '今日比分'):
-        return 'select_sport', None, 0, None
+        return 'menu_sport_events', None, 0, None
 
     # 運動類型
     for kw, sport in SPORT_KEYWORDS.items():
@@ -539,8 +539,8 @@ def build_main_menu_qr():
         QuickReplyItem(action=MessageAction(label='🏆 今日賽事', text='今日賽事')),
         QuickReplyItem(action=MessageAction(label='📅 明日賽事', text='明日賽事')),
         QuickReplyItem(action=MessageAction(label='📋 昨日賽果', text='昨日賽果')),
-        QuickReplyItem(action=MessageAction(label='� 今日賽果', text='今日賽果')),
-        QuickReplyItem(action=MessageAction(label='� 儲值序號', text='儲值序號')),
+        QuickReplyItem(action=MessageAction(label='📊 今日賽果', text='今日賽果')),
+        QuickReplyItem(action=MessageAction(label='💰 儲值序號', text='儲值序號')),
     ]
 
 

@@ -41,6 +41,18 @@ HEADERS = {
     'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
 }
 
+# playsport.cc 隊名修正對照表（網站會截斷隊名）
+TEAM_NAME_FIX = {
+    # NBA
+    '塞爾提': '塞爾提克', '拓荒者': '拓荒者', '獨行俠': '獨行俠',
+    # 可依需要繼續擴充
+}
+
+
+def fix_team_name(name):
+    """修正 playsport.cc 截斷的隊名"""
+    return TEAM_NAME_FIX.get(name, name)
+
 
 def get_league_name(ps_id):
     """根據聯賽 ID 取得名稱"""
@@ -217,8 +229,8 @@ def parse_pre_html(html, ps_id, gamedate, league_name):
                 'oid': box['oid'],
                 'league': league_name,
                 'leagueId': ps_id,
-                'away': away or '—',
-                'home': home or '—',
+                'away': fix_team_name(away) if away else '—',
+                'home': fix_team_name(home) if home else '—',
                 'awayScore': None,
                 'homeScore': None,
                 'date': date_str,
@@ -240,8 +252,8 @@ def parse_pre_html(html, ps_id, gamedate, league_name):
                 'oid': sg['value'],
                 'league': league_name,
                 'leagueId': ps_id,
-                'away': sg['away'],
-                'home': sg['home'],
+                'away': fix_team_name(sg['away']),
+                'home': fix_team_name(sg['home']),
                 'awayScore': None,
                 'homeScore': None,
                 'date': date_str,
