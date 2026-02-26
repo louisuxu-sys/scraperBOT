@@ -371,13 +371,15 @@ def format_game_text(game, sport='basketball'):
 
         if covered:
             win_mark = ' 🎯✔'
+        else:
+            win_mark = ' ❌'
 
     lines = [
         f'━━━━━━━━━━━━━━━',
         f'{status}  {time_str}{win_mark}',
-        f'🔴 {away}',
+        f'� {away}',
         f'📊 {score}',
-        f'⚪ {home}',
+        f'🏠 {home}',
         recommend,
     ]
 
@@ -467,7 +469,7 @@ def format_all_games_text(games, sport='basketball', date_str=''):
     lines.append('')
 
     for league, league_games in groups.items():
-        lines.append(f'🏷 {league}【{len(league_games)} 場】')
+        lines.append(f'\n�── {league}【{len(league_games)} 場】──')
         for g in league_games:
             lines.append(format_game_text(g, sport))
         lines.append('')
@@ -580,9 +582,9 @@ def format_yesterday_results(games, sport='basketball', date_str=''):
 
         result_lines.append(f'━━━━━━━━━━━━━━━')
         result_lines.append(f'⏰ {time_str}')
-        result_lines.append(f'🔴 {away}')
+        result_lines.append(f'� {away}')
         result_lines.append(f'📊 {score}')
-        result_lines.append(f'⚪ {home}')
+        result_lines.append(f'🏠 {home}')
         result_lines.append(f'🔮 推薦：{rec_text}  {mark}')
 
     rate = round(hit / total_rec * 100, 1) if total_rec > 0 else 0
