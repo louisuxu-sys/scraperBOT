@@ -440,6 +440,13 @@ def fetch_all_games(sport='basketball', gamedate=None):
     status_order = {'live': 0, 'upcoming': 1, 'postponed': 2, 'finished': 3}
     unique_games.sort(key=lambda g: (status_order.get(g['status'], 9), g.get('time', '')))
 
+    # 嘗試配對 The Odds API 盤口（非阻塞，失敗不影響）
+    try:
+        from odds_api import match_odds_to_games
+        unique_games = match_odds_to_games(unique_games, sport)
+    except Exception as e:
+        print(f'[Scraper] OddsAPI integration skipped: {e}')
+
     return unique_games
 
 
