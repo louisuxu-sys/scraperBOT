@@ -11,3 +11,4 @@ ENV/
 Thumbs.db
 firebase-key.json
 data.json
+odds_data/

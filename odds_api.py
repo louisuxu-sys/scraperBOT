@@ -1,17 +1,23 @@
 # -*- coding: utf-8 -*-
 """
 盤口資料增強模組（可選）
-如有設定 ODDS_API_KEY 環境變數，會從 the-odds-api.com 取得
-bet365/1xbet 等博彩公司的真實盤口（讓分、獨贏、大小分）。
-未設定時完全靜默，不影響任何功能。
-免費方案：500 requests/month → https://the-odds-api.com/account/
+策略：每天自動爬取一次所有賽事盤口 → 存成本地 JSON 檔
+後續所有用戶查詢都讀本地檔案，完全不消耗 API 額度。
+
+每日消耗：~5 運動 × 3 額度 = 15 次/天 → 450 次/月（免費 500 內）
+資料來源：the-odds-api.com（bet365 / 1xbet 等真實盤口）
 """
 import os
+import json
 import time
 import requests
+from datetime import datetime, timedelta, timezone
+
+TW_TZ = timezone(timedelta(hours=8))
 
 ODDS_API_KEY = os.environ.get('ODDS_API_KEY', '')
 ODDS_API_BASE = 'https://api.the-odds-api.com/v4'
+ODDS_DATA_DIR = os.path.join(os.path.dirname(__file__), 'odds_data')
 
 SPORT_MAP = {
     'basketball': ['basketball_nba'],
@@ -24,29 +30,39 @@ SPORT_MAP = {
 
 PREFERRED_BOOKMAKERS = ['bet365', '1xbet', 'pinnacle', 'unibet']
 
-_odds_cache = {}
-CACHE_TTL = 600
+
+# ─── 每日爬取 & 儲存 ────────────────────────────────────────
+
+def _today_str():
+    return datetime.now(TW_TZ).strftime('%Y-%m-%d')
 
 
-def match_odds_to_games(games, sport='basketball'):
-    """配對 The Odds API 盤口到 playsport 賽事。無 key 時直接返回。"""
+def _odds_file(sport):
+    """本地盤口 JSON 檔路徑：odds_data/basketball_2026-03-06.json"""
+    return os.path.join(ODDS_DATA_DIR, f'{sport}_{_today_str()}.json')
+
+
+def _is_today_fetched(sport):
+    """檢查今天的盤口是否已經爬過"""
+    path = _odds_file(sport)
+    return os.path.exists(path)
+
+
+def fetch_and_save(sport='basketball'):
+    """
+    從 The Odds API 爬取盤口 → 解析 → 存成本地 JSON。
+    每天每個運動只需呼叫一次。
+    """
     if not ODDS_API_KEY:
-        return games
+        return
 
     api_sports = SPORT_MAP.get(sport, [])
     if not api_sports:
-        return games
+        return
 
-    # 取得盤口（h2h + spreads + totals 合併一次請求）
-    all_odds = []
+    all_parsed = []
+
     for api_sport in api_sports:
-        cache_key = f'{api_sport}_all'
-        now = time.time()
-        if cache_key in _odds_cache:
-            ts, data = _odds_cache[cache_key]
-            if now - ts < CACHE_TTL:
-                all_odds.extend(data)
-                continue
         try:
             resp = requests.get(
                 f'{ODDS_API_BASE}/sports/{api_sport}/odds/',
@@ -56,67 +72,140 @@ def match_odds_to_games(games, sport='basketball'):
                     'markets': 'h2h,spreads,totals',
                     'oddsFormat': 'decimal',
                 },
-                timeout=15,
+                timeout=20,
             )
             if resp.status_code != 200:
+                print(f'[OddsAPI] {api_sport} error: {resp.status_code}')
                 continue
+
             data = resp.json()
-            _odds_cache[cache_key] = (now, data)
-            all_odds.extend(data)
             remaining = resp.headers.get('x-requests-remaining', '?')
             print(f'[OddsAPI] {api_sport}: {len(data)} games (quota left: {remaining})')
-        except Exception:
-            pass
 
-    if not all_odds:
+            # 解析每場比賽
+            for gd in data:
+                info = _parse_game_odds(gd)
+                if info:
+                    all_parsed.append(info)
+
+        except Exception as e:
+            print(f'[OddsAPI] {api_sport} fetch error: {e}')
+
+    if not all_parsed:
+        return
+
+    # 儲存到本地 JSON
+    os.makedirs(ODDS_DATA_DIR, exist_ok=True)
+    path = _odds_file(sport)
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(all_parsed, f, ensure_ascii=False, indent=2)
+    print(f'[OddsAPI] Saved {len(all_parsed)} games to {path}')
+
+    # 清理舊檔案（保留最近 3 天）
+    _cleanup_old_files()
+
+
+def _parse_game_odds(gd):
+    """解析單場 API 回傳資料，提取最佳博彩公司的盤口"""
+    home_en = gd.get('home_team', '')
+    away_en = gd.get('away_team', '')
+    if not home_en or not away_en:
+        return None
+
+    bm = _pick_bookmaker(gd.get('bookmakers', []))
+    if not bm:
+        return None
+
+    info = {
+        'home_team': home_en,
+        'away_team': away_en,
+        'bookmaker': bm.get('title', ''),
+        'commence_time': gd.get('commence_time', ''),
+    }
+
+    for mkt in bm.get('markets', []):
+        if mkt['key'] == 'h2h':
+            for o in mkt['outcomes']:
+                if o['name'] == home_en:
+                    info['h2h_home'] = o['price']
+                elif o['name'] == away_en:
+                    info['h2h_away'] = o['price']
+                elif o['name'] == 'Draw':
+                    info['h2h_draw'] = o['price']
+        elif mkt['key'] == 'spreads':
+            for o in mkt['outcomes']:
+                if o['name'] == home_en:
+                    info['spread_home'] = o.get('point', 0)
+                elif o['name'] == away_en:
+                    info['spread_away'] = o.get('point', 0)
+        elif mkt['key'] == 'totals':
+            for o in mkt['outcomes']:
+                if o['name'] == 'Over':
+                    info['total_over'] = o.get('point', 0)
+                elif o['name'] == 'Under':
+                    info['total_under'] = o.get('point', 0)
+
+    return info
+
+
+def _cleanup_old_files():
+    """刪除 3 天前的盤口檔案"""
+    if not os.path.exists(ODDS_DATA_DIR):
+        return
+    cutoff = (datetime.now(TW_TZ) - timedelta(days=3)).strftime('%Y-%m-%d')
+    for f in os.listdir(ODDS_DATA_DIR):
+        if f.endswith('.json'):
+            # 檔名格式: basketball_2026-03-06.json
+            parts = f.replace('.json', '').split('_', 1)
+            if len(parts) == 2 and parts[1] < cutoff:
+                try:
+                    os.remove(os.path.join(ODDS_DATA_DIR, f))
+                    print(f'[OddsAPI] Cleaned up old file: {f}')
+                except Exception:
+                    pass
+
+
+# ─── 讀取 & 配對 ────────────────────────────────────────
+
+def load_today_odds(sport='basketball'):
+    """讀取今天的本地盤口 JSON，回傳 list of dicts"""
+    path = _odds_file(sport)
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def match_odds_to_games(games, sport='basketball'):
+    """
+    配對盤口到 playsport 賽事。
+    1. 如果今天還沒爬過 → 爬一次並存檔
+    2. 讀本地 JSON → 配對到 games
+    無 key 時直接返回，不影響任何功能。
+    """
+    if not ODDS_API_KEY:
         return games
 
-    # 建立英文隊名 → 盤口 dict
+    # 今天還沒爬過 → 自動爬取並儲存
+    if not _is_today_fetched(sport):
+        fetch_and_save(sport)
+
+    # 讀本地檔案（零 API 消耗）
+    odds_list = load_today_odds(sport)
+    if not odds_list:
+        return games
+
+    # 建立中文→英文反向表
     from scraper import TEAM_NAME_FIX
-    # 反向表：中文→英文
     cn_to_en = {}
     for k, v in TEAM_NAME_FIX.items():
         if any(c.isascii() and c.isalpha() for c in k):
             cn_to_en[v] = k
 
-    # 解析每場 API 資料
-    api_games = {}
-    for gd in all_odds:
-        home_en = gd.get('home_team', '')
-        away_en = gd.get('away_team', '')
-        info = {'home_team': home_en, 'away_team': away_en}
-
-        # 找最佳博彩公司
-        bm = _pick_bookmaker(gd.get('bookmakers', []))
-        if not bm:
-            continue
-        info['bookmaker'] = bm.get('title', '')
-
-        for mkt in bm.get('markets', []):
-            if mkt['key'] == 'h2h':
-                for o in mkt['outcomes']:
-                    if o['name'] == home_en:
-                        info['h2h_home'] = o['price']
-                    elif o['name'] == away_en:
-                        info['h2h_away'] = o['price']
-                    elif o['name'] == 'Draw':
-                        info['h2h_draw'] = o['price']
-            elif mkt['key'] == 'spreads':
-                for o in mkt['outcomes']:
-                    if o['name'] == home_en:
-                        info['spread_home'] = o.get('point', 0)
-                    elif o['name'] == away_en:
-                        info['spread_away'] = o.get('point', 0)
-            elif mkt['key'] == 'totals':
-                for o in mkt['outcomes']:
-                    if o['name'] == 'Over':
-                        info['total_over'] = o.get('point', 0)
-                    elif o['name'] == 'Under':
-                        info['total_under'] = o.get('point', 0)
-
-        api_games[(home_en.lower(), away_en.lower())] = info
-
-    # 配對：中文隊名 ↔ 英文隊名
+    # 配對
     matched = 0
     for game in games:
         home_cn = game.get('home', '')
@@ -125,11 +214,13 @@ def match_odds_to_games(games, sport='basketball'):
         away_en = cn_to_en.get(away_cn, '').lower()
 
         best = None
-        for (ah, aa), info in api_games.items():
-            if (home_en and home_en in ah) or (away_en and away_en in aa):
+        for info in odds_list:
+            api_h = info.get('home_team', '').lower()
+            api_a = info.get('away_team', '').lower()
+            if (home_en and home_en in api_h) and (away_en and away_en in api_a):
                 best = info
                 break
-            if (home_en and home_en in aa) or (away_en and away_en in ah):
+            if (home_en and home_en in api_h) or (away_en and away_en in api_a):
                 best = info
                 break
 
@@ -141,7 +232,7 @@ def match_odds_to_games(games, sport='basketball'):
             matched += 1
 
     if matched:
-        print(f'[OddsAPI] Matched {matched}/{len(games)} games')
+        print(f'[OddsAPI] Matched {matched}/{len(games)} games (from local file)')
     return games
 
 
