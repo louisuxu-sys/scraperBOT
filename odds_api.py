@@ -48,12 +48,32 @@ def _is_today_fetched(sport):
     return os.path.exists(path)
 
 
+def _quota_exhausted_today():
+    """檢查今天是否已經額度用完（避免重複嘗試）"""
+    marker = os.path.join(ODDS_DATA_DIR, f'_no_quota_{_today_str()}')
+    return os.path.exists(marker)
+
+
+def _mark_quota_exhausted():
+    """標記今天額度已用完"""
+    os.makedirs(ODDS_DATA_DIR, exist_ok=True)
+    marker = os.path.join(ODDS_DATA_DIR, f'_no_quota_{_today_str()}')
+    with open(marker, 'w') as f:
+        f.write('quota exhausted')
+    print('[OddsAPI] 本月額度已用完，自動改用 playsport 原始盤口')
+
+
 def fetch_and_save(sport='basketball'):
     """
     從 The Odds API 爬取盤口 → 解析 → 存成本地 JSON。
     每天每個運動只需呼叫一次。
+    額度不足時靜默跳過，自動 fallback 到 playsport 盤口。
     """
     if not ODDS_API_KEY:
+        return
+
+    # 今天額度已用完 → 不再嘗試
+    if _quota_exhausted_today():
         return
 
     api_sports = SPORT_MAP.get(sport, [])
@@ -74,13 +94,25 @@ def fetch_and_save(sport='basketball'):
                 },
                 timeout=20,
             )
+            # 額度不足或 key 無效 → 標記並停止
+            if resp.status_code in (401, 429):
+                print(f'[OddsAPI] {api_sport}: HTTP {resp.status_code}')
+                _mark_quota_exhausted()
+                return
             if resp.status_code != 200:
                 print(f'[OddsAPI] {api_sport} error: {resp.status_code}')
                 continue
 
             data = resp.json()
-            remaining = resp.headers.get('x-requests-remaining', '?')
+            remaining = resp.headers.get('x-requests-remaining', '0')
             print(f'[OddsAPI] {api_sport}: {len(data)} games (quota left: {remaining})')
+
+            # 剩餘額度不足 → 完成這次但標記
+            try:
+                if int(remaining) <= 0:
+                    _mark_quota_exhausted()
+            except (ValueError, TypeError):
+                pass
 
             # 解析每場比賽
             for gd in data:
