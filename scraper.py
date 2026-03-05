@@ -23,6 +23,7 @@ PS_LEAGUES = {
         {'psId': '2', 'name': '日本職棒'},
         {'psId': '6', 'name': '中華職棒'},
         {'psId': '9', 'name': '韓國職棒'},
+        {'psId': '114', 'name': 'WBC經典賽'},
     ],
     'soccer': [
         {'psId': '4', 'name': '足球'},
@@ -145,13 +146,18 @@ def parse_pre_html(html, ps_id, gamedate, league_name):
             preview_end = html.find('開打前的gamebox END', preview_start)
             ph = html[preview_start:preview_end] if preview_end > -1 else html[preview_start:preview_start + 15000]
 
+            # 隊名解析：先試 <a> 標籤，再試純文字（WBC 等國際賽格式）
             left_m = re.search(r'team_left[^>]*>[\s\S]*?<a[^>]*>\s*([\s\S]*?)\s*</a>', ph)
+            if not left_m:
+                left_m = re.search(r'team_left[^>]*>([\s\S]*?)</td>', ph)
             right_m = re.search(r'team_right[^>]*>[\s\S]*?<a[^>]*>\s*([\s\S]*?)\s*</a>', ph)
+            if not right_m:
+                right_m = re.search(r'team_right[^>]*>([\s\S]*?)</td>', ph)
             center_m = re.search(r'team_cinter[^>]*>\s*([^<]+)', ph)
             if left_m:
-                away = left_m.group(1).strip()
+                away = re.sub(r'<[^>]+>', '', left_m.group(1)).strip()
             if right_m:
-                home = right_m.group(1).strip()
+                home = re.sub(r'<[^>]+>', '', right_m.group(1)).strip()
             if center_m:
                 time_str = center_m.group(1).strip()
 
