@@ -46,6 +46,10 @@ HEADERS = {
 TEAM_NAME_FIX = {
     # NBA
     '塞爾提': '塞爾提克',
+    # WBC 國家名截斷修正
+    '哥倫比': '哥倫比亞', '尼加拉': '尼加拉瓜', '波多黎': '波多黎各',
+    '委內瑞': '委內瑞拉', '多明尼': '多明尼加', '澳大利': '澳大利亞',
+    '紐西蘭': '紐西蘭', '多明尼加共和': '多明尼加',
     # MLB 英文→中文
     '費城人': '費城人', '勇士': '勇士', '光芒': '光芒', '紅雀': '紅雀',
     '老虎': '老虎', '雙城': '雙城', '大都會': '大都會', '遊騎兵': '遊騎兵',
@@ -162,13 +166,9 @@ def parse_pre_html(html, ps_id, gamedate, league_name):
             preview_end = html.find('開打前的gamebox END', preview_start)
             ph = html[preview_start:preview_end] if preview_end > -1 else html[preview_start:preview_start + 15000]
 
-            # 隊名解析：先試 <a> 標籤，再試純文字（WBC 等國際賽格式）
-            left_m = re.search(r'team_left[^>]*>[\s\S]*?<a[^>]*>\s*([\s\S]*?)\s*</a>', ph)
-            if not left_m:
-                left_m = re.search(r'team_left[^>]*>([\s\S]*?)</td>', ph)
-            right_m = re.search(r'team_right[^>]*>[\s\S]*?<a[^>]*>\s*([\s\S]*?)\s*</a>', ph)
-            if not right_m:
-                right_m = re.search(r'team_right[^>]*>([\s\S]*?)</td>', ph)
+            # 隊名解析：取 <td> 全部內容後去 HTML 標籤（相容一般聯賽與 WBC 國際賽）
+            left_m = re.search(r'team_left[^>]*>([\s\S]*?)</td>', ph)
+            right_m = re.search(r'team_right[^>]*>([\s\S]*?)</td>', ph)
             center_m = re.search(r'team_cinter[^>]*>\s*([^<]+)', ph)
             if left_m:
                 away = re.sub(r'<[^>]+>', '', left_m.group(1)).strip()
