@@ -19,11 +19,11 @@ PS_LEAGUES = {
         {'psId': '97', 'name': '日本職籃'},
     ],
     'baseball': [
+        {'psId': '114', 'name': 'WBC經典賽'},
         {'psId': '1', 'name': 'MLB'},
         {'psId': '2', 'name': '日本職棒'},
         {'psId': '6', 'name': '中華職棒'},
         {'psId': '9', 'name': '韓國職棒'},
-        {'psId': '114', 'name': 'WBC經典賽'},
     ],
     'soccer': [
         {'psId': '4', 'name': '足球'},
@@ -42,10 +42,26 @@ HEADERS = {
     'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
 }
 
-# playsport.cc 隊名修正對照表（網站會截斷隊名）
+# playsport.cc 隊名修正對照表（網站會截斷隊名 + MLB英文隊名轉中文）
 TEAM_NAME_FIX = {
     # NBA
-    '塞爾提': '塞爾提克', '拓荒者': '拓荒者', '獨行俠': '獨行俠',
+    '塞爾提': '塞爾提克',
+    # MLB 英文→中文
+    '費城人': '費城人', '勇士': '勇士', '光芒': '光芒', '紅雀': '紅雀',
+    '老虎': '老虎', '雙城': '雙城', '大都會': '大都會', '遊騎兵': '遊騎兵',
+    '道奇': '道奇', '紅人': '紅人', '教士': '教士', '天使': '天使',
+    '落磯': '落磯', '國民': '國民',
+    'Phillies': '費城人', 'Braves': '勇士', 'Rays': '光芒',
+    'Cardinals': '紅雀', 'Tigers': '老虎', 'Twins': '雙城',
+    'Mets': '大都會', 'Rangers': '遊騎兵', 'Dodgers': '道奇',
+    'Reds': '紅人', 'Padres': '教士', 'Angels': '天使',
+    'Rockies': '落磯', 'Nationals': '國民',
+    'Yankees': '洋基', 'Red Sox': '紅襪', 'Blue Jays': '藍鳥',
+    'Orioles': '金鶯', 'Astros': '太空人', 'Mariners': '水手',
+    'Athletics': '運動家', 'White Sox': '白襪', 'Guardians': '乳牛',
+    'Royals': '皇家', 'Cubs': '小熊', 'Brewers': '釀酒人',
+    'Pirates': '海盜', 'Marlins': '馬林魚', 'Diamondbacks': '響尾蛇',
+    'Giants': '巨人',
     # 可依需要繼續擴充
 }
 
