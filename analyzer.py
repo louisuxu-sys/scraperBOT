@@ -213,46 +213,48 @@ def generate_analysis(game, sport='basketball'):
         else:
             expected_total = (home_avg['scored'] + away_avg['scored'] + home_avg['allowed'] + away_avg['allowed']) / 2
 
-    # 5. 盤口（優先使用 The Odds API 真實盤口）
+    # 5. 盤口（使用 playsport 競猜頁面的完整盤口）
     odds_api = game.get('odds_api', {})
-    if odds_api and odds_api.get('spread_home') is not None:
-        # 用真實盤口數據
-        real_spread = odds_api['spread_home']
-        abs_spread = abs(real_spread)
-        fav = home_name if real_spread > 0 else away_name
-        dog = away_name if real_spread > 0 else home_name
-        source = odds_api.get('bookmaker', '')
-        src_tag = f'（{source}）' if source else ''
+    if odds_api and odds_api.get('spread'):
+        try:
+            real_spread = float(odds_api['spread'])
+        except (ValueError, TypeError):
+            real_spread = None
 
-        line_text = f'【盤口解讀】{src_tag}{fav} 讓 {abs_spread} 分，'
-        if abs_spread >= 10:
-            line_text += f'讓分幅度較大，盤口看好 {fav} 大勝。'
-        elif abs_spread >= 5:
-            line_text += f'屬於中等讓分，{fav} 被看好但需穩定發揮方能過盤。'
-        else:
-            line_text += '讓分較小，反映兩隊實力差距不大。'
-        lines.append(line_text)
+        if real_spread is not None:
+            abs_spread = abs(real_spread)
+            fav = home_name if real_spread < 0 else away_name
+            dog = away_name if real_spread < 0 else home_name
 
-        # 獨贏賠率
-        h2h_h = odds_api.get('h2h_home')
-        h2h_a = odds_api.get('h2h_away')
-        if h2h_h and h2h_a:
-            lines.append(f'【獨贏賠率】{home_name} {h2h_h:.2f} / {away_name} {h2h_a:.2f}')
+            line_text = f'【盤口解讀】{fav} 讓 {abs_spread} 分，'
+            if abs_spread >= 10:
+                line_text += f'讓分幅度較大，盤口看好 {fav} 大勝。'
+            elif abs_spread >= 5:
+                line_text += f'屬於中等讓分，{fav} 被看好但需穩定發揮方能過盤。'
+            else:
+                line_text += '讓分較小，反映兩隊實力差距不大。'
+            lines.append(line_text)
 
-        # 大小分
-        total_over = odds_api.get('total_over')
-        if total_over:
-            lines.append(f'【大小分】大/小 {total_over} 分')
+            # 獨贏賠率
+            ml_h = odds_api.get('ml_home')
+            ml_a = odds_api.get('ml_away')
+            if ml_h and ml_a:
+                lines.append(f'【獨贏賠率】{home_name} {ml_h} / {away_name} {ml_a}')
 
-        if real_spread > 0:
-            home_adj += min(10, abs_spread)
-        else:
-            away_adj += min(10, abs_spread)
+            # 大小分
+            total_line = odds_api.get('total')
+            if total_line:
+                lines.append(f'【大小分】大/小 {total_line} 分')
 
-        # 用真實盤口覆蓋
-        spread = real_spread
-        has_spread = True
-    elif has_spread:
+            if real_spread < 0:
+                home_adj += min(10, abs_spread)
+            else:
+                away_adj += min(10, abs_spread)
+
+            spread = real_spread
+            has_spread = True
+
+    if not odds_api.get('spread') and has_spread:
         fav = home_name if spread > 0 else away_name
         dog = away_name if spread > 0 else home_name
         abs_spread = abs(spread)
