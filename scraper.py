@@ -19,7 +19,7 @@ PS_LEAGUES = {
         {'psId': '97', 'name': '日本職籃'},
     ],
     'baseball': [
-        {'psId': '114', 'name': 'WBC經典賽'},
+        {'psId': '114', 'name': 'WBC經典賽', 'neutral': True},
         {'psId': '1', 'name': 'MLB'},
         {'psId': '2', 'name': '日本職棒'},
         {'psId': '6', 'name': '中華職棒'},
@@ -35,6 +35,9 @@ PS_LEAGUES = {
         {'psId': '21', 'name': '網球'},
     ],
 }
+
+# 中立場地聯賽 ID（無主客場之分）
+NEUTRAL_LEAGUE_IDS = {'114'}  # WBC
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -262,6 +265,7 @@ def parse_pre_html(html, ps_id, gamedate, league_name):
                 'odds': odds,
                 'teamCodes': team_codes,
                 'quarterScores': None,
+                'neutral': ps_id in NEUTRAL_LEAGUE_IDS,
             })
 
     # 如果 gamebox 解析失敗，用 select 備援
@@ -285,6 +289,7 @@ def parse_pre_html(html, ps_id, gamedate, league_name):
                 'odds': {},
                 'teamCodes': '',
                 'quarterScores': None,
+                'neutral': ps_id in NEUTRAL_LEAGUE_IDS,
             })
 
     return games

@@ -61,6 +61,7 @@ def generate_analysis(game, sport='basketball'):
 
     home_name = game.get('home', '主隊')
     away_name = game.get('away', '客隊')
+    is_neutral = game.get('neutral', False)
     expected_total = 0
 
     # 解析數據
@@ -172,18 +173,22 @@ def generate_analysis(game, sport='basketball'):
 
     # 3. 主客場戰績
     if home_ha and away_ha:
-        lines.append(f'【主客場】{home_name} 主場 {home_ha["w"]}勝{home_ha["l"]}敗；{away_name} 客場 {away_ha["w"]}勝{away_ha["l"]}敗。')
+        if is_neutral:
+            lines.append(f'【戰績參考】{home_name} {home_ha["w"]}勝{home_ha["l"]}敗；{away_name} {away_ha["w"]}勝{away_ha["l"]}敗。（中立場地，無主客場優勢）')
+        else:
+            lines.append(f'【主客場】{home_name} 主場 {home_ha["w"]}勝{home_ha["l"]}敗；{away_name} 客場 {away_ha["w"]}勝{away_ha["l"]}敗。')
         h_ha_pct = home_ha['pct']
         a_ha_pct = away_ha['pct']
-        if h_ha_pct > 60:
-            lines.append(f'{home_name} 主場勝率突出，主場龍優勢不容忽視。')
-            home_adj += 4
-        if a_ha_pct < 40:
-            lines.append(f'{away_name} 客場戰績不佳，客場蟲劣勢明顯。')
-            home_adj += 3
-        elif a_ha_pct > 55:
-            lines.append(f'{away_name} 客場表現穩健，具備客場搶分能力。')
-            away_adj += 3
+        if not is_neutral:
+            if h_ha_pct > 60:
+                lines.append(f'{home_name} 主場勝率突出，主場龍優勢不容忽視。')
+                home_adj += 4
+            if a_ha_pct < 40:
+                lines.append(f'{away_name} 客場戰績不佳，客場蟲劣勢明顯。')
+                home_adj += 3
+            elif a_ha_pct > 55:
+                lines.append(f'{away_name} 客場表現穩健，具備客場搶分能力。')
+                away_adj += 3
 
     # 4. 得失分
     if home_avg and away_avg:
@@ -241,7 +246,10 @@ def generate_analysis(game, sport='basketball'):
 
     # 沒有任何數據
     if not lines:
-        lines.append(f'本場比賽 {home_name}（主）迎戰 {away_name}（客），主隊擁有主場優勢。')
+        if is_neutral:
+            lines.append(f'本場比賽 {home_name} vs {away_name}，中立場地作賽，無主客場優勢。')
+        else:
+            lines.append(f'本場比賽 {home_name}（主）迎戰 {away_name}（客），主隊擁有主場優勢。')
         lines.append('建議關注兩隊近期傷病動態與輪休情況，作為投注參考依據。')
 
     # 7. 總結
@@ -374,14 +382,25 @@ def format_game_text(game, sport='basketball'):
         else:
             win_mark = ' ❌'
 
-    lines = [
-        f'━━━━━━━━━━━━━━━',
-        f'{status}  {time_str}{win_mark}',
-        f'🚌 {away}',
-        f'📊 {score}',
-        f'🏠 {home}',
-        recommend,
-    ]
+    is_neutral = game.get('neutral', False)
+    if is_neutral:
+        lines = [
+            f'━━━━━━━━━━━━━━━',
+            f'{status}  {time_str}{win_mark}',
+            f'🔷 {away}',
+            f'📊 {score}',
+            f'🔶 {home}',
+            recommend,
+        ]
+    else:
+        lines = [
+            f'━━━━━━━━━━━━━━━',
+            f'{status}  {time_str}{win_mark}',
+            f'🔷 {away}',
+            f'📊 {score}',
+            f'🏠 {home}',
+            recommend,
+        ]
 
     return '\n'.join(lines)
 
@@ -401,14 +420,18 @@ def format_analysis_text(game, sport='basketball'):
     h_bar = '█' * round(hw / 100 * bar_len)
     a_bar = '█' * round(aw / 100 * bar_len)
 
+    is_neutral = game.get('neutral', False)
+    h_icon = '🔶' if is_neutral else '🏠'
+    a_icon = '🔷' if is_neutral else '🚌'
+
     lines = [
         f'⚡ 賽事分析',
         f'━━━━━━━━━━━━━━━',
-        f'🏠 {home}',
-        f'🚌 {away}',
+        f'{h_icon} {home}',
+        f'{a_icon} {away}',
         f'',
         f'📈 勝率預測',
-        f'🏠 {h_bar} {hw}%',
+        f'{h_icon} {h_bar} {hw}%',
     ]
 
     if sport != 'basketball':
@@ -417,7 +440,7 @@ def format_analysis_text(game, sport='basketball'):
         lines.append(f'◎ {d_bar} {dw}%')
 
     lines.extend([
-        f'🚌 {a_bar} {aw}%',
+        f'{a_icon} {a_bar} {aw}%',
         f'',
         f'🎯 信心指數：{analysis["confidence"]}%',
     ])
@@ -614,11 +637,14 @@ def format_yesterday_results(games, sport='basketball', date_str='', title='昨�
             mark = '➖'
             total_rec -= 1
 
+        is_neutral = game.get('neutral', False)
+        h_icon = '🔶' if is_neutral else '🏠'
+        a_icon = '🔷' if is_neutral else '🚌'
         result_lines.append(f'━━━━━━━━━━━━━━━')
         result_lines.append(f'⏰ {time_str}')
-        result_lines.append(f'🚌 {away}')
+        result_lines.append(f'{a_icon} {away}')
         result_lines.append(f'📊 {score}')
-        result_lines.append(f'🏠 {home}')
+        result_lines.append(f'{h_icon} {home}')
         result_lines.append(f'🔮 推薦：{rec_text}  {mark}')
 
     rate = round(hit / total_rec * 100, 1) if total_rec > 0 else 0
