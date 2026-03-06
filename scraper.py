@@ -37,7 +37,7 @@ PS_LEAGUES = {
 }
 
 # 中立場地聯賽 ID（無主客場之分）
-NEUTRAL_LEAGUE_IDS = {'114'}  # WBC
+NEUTRAL_LEAGUE_IDS = set()  # 目前無中立場地聯賽
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
