@@ -359,8 +359,15 @@ def format_game_text(game, sport='basketball'):
     # 盤口資訊（用於推薦計算）
     odds = game.get('odds', {})
 
-    # 快速推薦（讓分/受讓/獨贏/大小分）
-    analysis = generate_analysis(game, sport)
+    # 快速推薦 — 始終用賽前分析邏輯（避免比分改變推薦結果）
+    if game.get('status') in ('finished', 'live'):
+        pre_game = dict(game)
+        pre_game['status'] = 'upcoming'
+        pre_game['homeScore'] = None
+        pre_game['awayScore'] = None
+        analysis = generate_analysis(pre_game, sport)
+    else:
+        analysis = generate_analysis(game, sport)
     hw = analysis['homeWin']
     aw = analysis['awayWin']
     diff = abs(hw - aw)
@@ -617,9 +624,13 @@ def format_yesterday_results(games, sport='basketball', date_str='', title='昨�
             score = '— : —'
             winner = None
 
-        # 計算推薦（跟 format_game_text 同邏輯）
+        # 計算推薦（始終用賽前分析，避免比分翻轉推薦）
         odds = game.get('odds', {})
-        analysis = generate_analysis(game, sport)
+        pre_game = dict(game)
+        pre_game['status'] = 'upcoming'
+        pre_game['homeScore'] = None
+        pre_game['awayScore'] = None
+        analysis = generate_analysis(pre_game, sport)
         hw = analysis['homeWin']
         aw = analysis['awayWin']
         diff = abs(hw - aw)
