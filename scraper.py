@@ -220,6 +220,7 @@ def parse_pre_html(html, ps_id, gamedate, league_name):
             so = re.search(r'data-aheadodds="([^"]*)"', box_html)
             if sp:
                 odds['spread'] = sp.group(1)
+                odds['spread_unsigned'] = True  # livescore 盤口無正負號
             if so:
                 odds['spreadOdds'] = so.group(1)
 

@@ -334,19 +334,24 @@ def generate_analysis(game, sport='basketball'):
             lines.append(total_text)
 
     if not spread_src and has_spread:
-        fav = home_name if spread > 0 else away_name
-        dog = away_name if spread > 0 else home_name
         abs_spread = abs(spread)
-        line_text = f'【盤口解讀】本場開出 {fav} 讓 {abs_spread} 分，'
+        # livescore 的 spread 無正負號，用已計算的 home_adj/away_adj 推斷讓分方
+        if home_adj >= away_adj:
+            ls_fav = home_name
+            ls_dog = away_name
+        else:
+            ls_fav = away_name
+            ls_dog = home_name
+        line_text = f'【盤口解讀】本場開出讓 {abs_spread} 分，'
         if abs_spread >= 10:
-            line_text += f'讓分幅度較大，盤口看好 {fav} 大勝。建議留意 {dog} 是否具備爆冷實力。'
+            line_text += f'讓分幅度較大，比賽預計差距明顯。'
         elif abs_spread >= 5:
-            line_text += f'屬於中等讓分，{fav} 被看好但需穩定發揮方能過盤。'
+            line_text += f'屬於中等讓分，需穩定發揮方能過盤。'
         else:
             line_text += '讓分較小，反映兩隊實力差距不大，比賽懸念較高。'
         lines.append(line_text)
 
-        if spread > 0:
+        if home_adj >= away_adj:
             home_adj += min(10, abs_spread)
         else:
             away_adj += min(10, abs_spread)
@@ -459,20 +464,44 @@ def format_game_text(game, sport='basketball'):
     except (ValueError, TypeError):
         spread_val = 0
     abs_spread = abs(spread_val)
+    is_unsigned = odds.get('spread_unsigned', False)
+
+    # 盤口讓分方向判斷：
+    #   有正負號（playsport）：spread < 0 → 主隊讓，spread > 0 → 客隊讓
+    #   無正負號（livescore）：由分析勝率推斷誰是讓分方
+    if abs_spread > 0 and not is_unsigned:
+        # playsport 簽名盤口
+        if spread_val < 0:
+            spread_fav = home   # 主隊讓分（主隊強）
+            spread_dog = away
+        else:
+            spread_fav = away   # 客隊讓分（客隊強）
+            spread_dog = home
+    elif abs_spread > 0 and is_unsigned:
+        # livescore 無符號盤口：用分析勝率推斷方向
+        spread_fav = fav    # 分析看好的隨是讓分方
+        spread_dog = dog
+    else:
+        spread_fav = fav
+        spread_dog = dog
 
     # 推薦類型
     rec_type = 'win'
-    if diff > 20 and abs_spread > 0:
-        recommend = f'🔮 推薦：{fav} 讓 {abs_spread} 分'
-        rec_type = 'spread_fav'
-    elif diff > 20:
+    if abs_spread > 0:
+        # 有盤口讓分 → 根據分析判斷推薦讓分方或受讓方
+        if fav == spread_fav and diff > 10:
+            # 分析看好讓分方且信心高 → 推讓分過盤
+            recommend = f'🔮 推薦：{spread_fav} 讓 {abs_spread} 分'
+            rec_type = 'spread_fav'
+        elif fav == spread_dog or diff <= 10:
+            # 分析看好受讓方，或兩隊接近 → 推受讓方
+            recommend = f'🔮 推薦：{spread_dog} 受讓 {abs_spread} 分'
+            rec_type = 'spread_dog'
+        else:
+            recommend = f'🔮 推薦：{spread_fav} 讓 {abs_spread} 分'
+            rec_type = 'spread_fav'
+    elif diff > 15:
         recommend = f'🔮 推薦：{fav} 獨贏'
-    elif diff > 10:
-        recommend = f'🔮 推薦：{fav} 獨贏'
-    elif spread_val != 0:
-        dog_team = away if spread_val > 0 else home
-        recommend = f'🔮 推薦：{dog_team} 受讓 {abs_spread} 分'
-        rec_type = 'spread_dog'
     elif exp_total > 0:
         total_line = round(exp_total / 5) * 5
         if analysis.get('confidence', 50) >= 55:
@@ -490,13 +519,14 @@ def format_game_text(game, sport='basketball'):
         score_diff = hs_int - as_int  # 主隊 - 客隊
 
         if rec_type == 'spread_fav':
-            if fav == home:
-                covered = (score_diff - abs_spread) > 0
+            # 讓分方過盤：讓分方贏的分數 > 讓分值
+            if spread_fav == home:
+                covered = score_diff > abs_spread
             else:
-                covered = (-score_diff - abs_spread) > 0
+                covered = -score_diff > abs_spread
         elif rec_type == 'spread_dog':
-            dt = away if spread_val > 0 else home
-            if dt == home:
+            # 受讓方過盤：受讓方輸的分數 < 讓分值（或贏球）
+            if spread_dog == home:
                 covered = (score_diff + abs_spread) > 0
             else:
                 covered = (-score_diff + abs_spread) > 0
@@ -522,7 +552,7 @@ def format_game_text(game, sport='basketball'):
         lines = [
             f'━━━━━━━━━━━━━━━',
             f'{status}  {time_str}{win_mark}',
-            f'🔷 {away}',
+            f'🚌 {away}',
             f'📊 {score}',
             f'🏠 {home}',
             recommend,
