@@ -213,11 +213,13 @@ def generate_analysis(game, sport='basketball'):
         else:
             expected_total = (home_avg['scored'] + away_avg['scored'] + home_avg['allowed'] + away_avg['allowed']) / 2
 
-    # 5. 盤口（使用 playsport 競猜頁面的完整盤口）
+    # 5. 盤口（結合 predict/games + predict/scale + guess 三頁面）
     odds_api = game.get('odds_api', {})
-    if odds_api and odds_api.get('spread'):
+    # 取得讓分：優先運彩盤 spread，備援國際盤 intl_spread_home
+    spread_src = odds_api.get('spread') or odds_api.get('intl_spread_home') if odds_api else None
+    if odds_api and spread_src:
         try:
-            real_spread = float(odds_api['spread'])
+            real_spread = float(spread_src)
         except (ValueError, TypeError):
             real_spread = None
 
@@ -226,25 +228,78 @@ def generate_analysis(game, sport='basketball'):
             fav = home_name if real_spread < 0 else away_name
             dog = away_name if real_spread < 0 else home_name
 
-            line_text = f'【盤口解讀】{fav} 讓 {abs_spread} 分，'
-            if abs_spread >= 10:
-                line_text += f'讓分幅度較大，盤口看好 {fav} 大勝。'
-            elif abs_spread >= 5:
-                line_text += f'屬於中等讓分，{fav} 被看好但需穩定發揮方能過盤。'
-            else:
-                line_text += '讓分較小，反映兩隊實力差距不大。'
-            lines.append(line_text)
+            # 運彩盤讓分
+            if odds_api.get('spread'):
+                line_text = f'【運彩讓分】{fav} 讓 {abs_spread} 分'
+                sp_h_odds = odds_api.get('spread_home_odds')
+                sp_a_odds = odds_api.get('spread_away_odds')
+                if sp_h_odds and sp_a_odds:
+                    line_text += f'（🏠{sp_h_odds} / 🚌{sp_a_odds}）'
+                lines.append(line_text)
 
-            # 獨贏賠率
+            # 國際盤讓分
+            intl_h = odds_api.get('intl_spread_home')
+            intl_a = odds_api.get('intl_spread_away')
+            if intl_h and intl_a:
+                intl_h_odds = odds_api.get('intl_spread_home_odds', '')
+                intl_a_odds = odds_api.get('intl_spread_away_odds', '')
+                lines.append(f'【國際讓分】🏠{intl_h} @{intl_h_odds} / 🚌{intl_a} @{intl_a_odds}')
+
+            # 盤口解讀
+            if abs_spread >= 10:
+                lines.append(f'→ 讓分幅度較大，盤口看好 {fav} 大勝。')
+            elif abs_spread >= 5:
+                lines.append(f'→ 中等讓分，{fav} 被看好但需穩定發揮方能過盤。')
+            else:
+                lines.append('→ 讓分較小，反映兩隊實力差距不大。')
+
+            # 獨贏賠率（運彩盤）
             ml_h = odds_api.get('ml_home')
             ml_a = odds_api.get('ml_away')
             if ml_h and ml_a:
-                lines.append(f'【獨贏賠率】{home_name} {ml_h} / {away_name} {ml_a}')
+                lines.append(f'【運彩獨贏】🏠{home_name} @{ml_h} / 🚌{away_name} @{ml_a}')
 
-            # 大小分
-            total_line = odds_api.get('total')
+            # 國際盤獨贏（如有）
+            g_ml_h = odds_api.get('guess_ml_home')
+            g_ml_a = odds_api.get('guess_ml_away')
+            if g_ml_h and g_ml_a:
+                lines.append(f'【國際獨贏】🏠{home_name} @{g_ml_h} / 🚌{away_name} @{g_ml_a}')
+
+            # 大小分（運彩盤或國際盤）
+            total_line = odds_api.get('total') or odds_api.get('intl_total_line')
             if total_line:
-                lines.append(f'【大小分】大/小 {total_line} 分')
+                over_odds = odds_api.get('total_over_odds') or odds_api.get('intl_total_over_odds', '')
+                under_odds = odds_api.get('total_under_odds') or odds_api.get('intl_total_under_odds', '')
+                total_text = f'【大小分】{total_line} 分'
+                if over_odds and under_odds:
+                    total_text += f'（大@{over_odds} / 小@{under_odds}）'
+                lines.append(total_text)
+
+                # 結合預估總分做大小分分析
+                if expected_total > 0:
+                    try:
+                        total_num = float(total_line)
+                        if expected_total > total_num + 5:
+                            lines.append(f'→ 預估總分 {expected_total:.0f} 明顯高於盤口 {total_line}，大分值得關注。')
+                        elif expected_total < total_num - 5:
+                            lines.append(f'→ 預估總分 {expected_total:.0f} 低於盤口 {total_line}，小分方向可考慮。')
+                    except (ValueError, TypeError):
+                        pass
+
+            # 玩家預測比例（scale 頁面）
+            h_pct = odds_api.get('home_predict_pct')
+            a_pct = odds_api.get('away_predict_pct')
+            p_count = odds_api.get('predict_count')
+            if h_pct and a_pct:
+                pct_text = f'【玩家預測】🏠{home_name} {h_pct} / 🚌{away_name} {a_pct}'
+                if p_count:
+                    pct_text += f'（{p_count}人參與）'
+                lines.append(pct_text)
+
+            # 走勢方向
+            h_trend = odds_api.get('home_trend')
+            if h_trend:
+                lines.append(f'【盤口走勢】🏠{home_name} {h_trend}')
 
             if real_spread < 0:
                 home_adj += min(10, abs_spread)
@@ -254,7 +309,31 @@ def generate_analysis(game, sport='basketball'):
             spread = real_spread
             has_spread = True
 
-    if not odds_api.get('spread') and has_spread:
+    # odds_api 存在但無讓分 → 僅顯示獨贏/大小分
+    elif odds_api and not spread_src:
+        g_ml_h = odds_api.get('guess_ml_home') or odds_api.get('ml_home')
+        g_ml_a = odds_api.get('guess_ml_away') or odds_api.get('ml_away')
+        if g_ml_h and g_ml_a:
+            lines.append(f'【獨贏賠率】🏠{home_name} @{g_ml_h} / 🚌{away_name} @{g_ml_a}')
+            try:
+                h_odds = float(g_ml_h)
+                a_odds = float(g_ml_a)
+                if h_odds < a_odds:
+                    home_adj += 3
+                elif a_odds < h_odds:
+                    away_adj += 3
+            except (ValueError, TypeError):
+                pass
+        total_line = odds_api.get('total') or odds_api.get('intl_total_line')
+        if total_line:
+            over_odds = odds_api.get('total_over_odds') or odds_api.get('intl_total_over_odds', '')
+            under_odds = odds_api.get('total_under_odds') or odds_api.get('intl_total_under_odds', '')
+            total_text = f'【大小分】{total_line} 分'
+            if over_odds and under_odds:
+                total_text += f'（大@{over_odds} / 小@{under_odds}）'
+            lines.append(total_text)
+
+    if not spread_src and has_spread:
         fav = home_name if spread > 0 else away_name
         dog = away_name if spread > 0 else home_name
         abs_spread = abs(spread)
