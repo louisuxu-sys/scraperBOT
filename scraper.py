@@ -247,6 +247,33 @@ def parse_pre_html(html, ps_id, gamedate, league_name):
                     home = home or sg['home']
                     break
 
+        # 直接偵測比賽狀態（不依賴 parse_live_scores 合併）
+        game_status = 'upcoming'
+        away_score = None
+        home_score = None
+        if box_start > -1 and box_end > -1:
+            box_html_full = html[box_start:box_end]
+            # 檢查 onbox div 是否可見（開打後顯示）
+            onbox_tag = re.search(
+                rf'<div[^>]*id="gamebox-{box["id"]}"(?!-)[^>]*>',
+                box_html_full,
+            )
+            if onbox_tag:
+                tag_str = onbox_tag.group(0)
+                style_m = re.search(r'style="([^"]*)"', tag_str)
+                class_m = re.search(r'class="([^"]*)"', tag_str)
+                onbox_visible = style_m and 'block' in style_m.group(1)
+                onbox_notend = class_m and 'gamebox-notend' in class_m.group(1)
+                if onbox_visible:
+                    game_status = 'live' if onbox_notend else 'finished'
+                    # 嘗試從 HTML 取得比分
+                    asr = re.search(rf'id="{box["id"]}_asr"[^>]*>(\d+)<', box_html_full)
+                    hsr = re.search(rf'id="{box["id"]}_hsr"[^>]*>(\d+)<', box_html_full)
+                    if asr:
+                        away_score = int(asr.group(1))
+                    if hsr:
+                        home_score = int(hsr.group(1))
+
         if away or home:
             date_str = f'{gamedate[:4]}-{gamedate[4:6]}-{gamedate[6:8]}'
             games.append({
@@ -257,11 +284,11 @@ def parse_pre_html(html, ps_id, gamedate, league_name):
                 'leagueId': ps_id,
                 'away': fix_team_name(away) if away else '—',
                 'home': fix_team_name(home) if home else '—',
-                'awayScore': None,
-                'homeScore': None,
+                'awayScore': away_score,
+                'homeScore': home_score,
                 'date': date_str,
                 'time': time_str,
-                'status': 'upcoming',
+                'status': game_status,
                 'record': record,
                 'odds': odds,
                 'teamCodes': team_codes,

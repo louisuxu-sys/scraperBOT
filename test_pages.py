@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
-"""Verify fetch_all_games for baseball returns correct WBC status"""
+"""Verify full flow: WBC + NBA status detection"""
 from scraper import fetch_all_games
 from analyzer import format_game_text
 
-games = fetch_all_games('baseball', '20260308')
-wbc = [g for g in games if 'WBC' in g.get('league', '') or '經典賽' in g.get('league', '')]
-print(f"WBC: {len(wbc)} games\n")
-for g in wbc:
-    text = format_game_text(g, 'baseball')
-    print(text)
-    print()
+for sport, label in [('baseball', '棒球'), ('basketball', '籃球')]:
+    games = fetch_all_games(sport)
+    finished = sum(1 for g in games if g['status'] == 'finished')
+    upcoming = sum(1 for g in games if g['status'] == 'upcoming')
+    live = sum(1 for g in games if g['status'] == 'live')
+    print(f"\n{label}: {len(games)} games (finished={finished}, upcoming={upcoming}, live={live})")
+    for g in games[:3]:
+        print(format_game_text(g, sport))
+        print()
