@@ -819,23 +819,42 @@ def handle_message(event):
 
 
 # ===== Keep-Alive 防止休眠 =====
-def keep_alive():
-    """每 10 分鐘 ping 自己的 /health，防止 Render 免費方案休眠"""
+_keep_alive_started = False
+
+
+def _keep_alive_loop():
+    """背景循環：每 10 分鐘 ping 自己的 /health"""
+    import time
+    time.sleep(60)  # 等待 60 秒讓服務完全啟動
     url = os.environ.get('RENDER_EXTERNAL_URL')
-    if url:
+    if not url:
+        print('[KeepAlive] No RENDER_EXTERNAL_URL set, skipping.')
+        return
+    while True:
         try:
             urllib.request.urlopen(f'{url}/health', timeout=10)
             print(f'[KeepAlive] Pinged {url}/health')
         except Exception as e:
             print(f'[KeepAlive] Ping failed: {e}')
-    timer = threading.Timer(600, keep_alive)  # 600秒 = 10分鐘
-    timer.daemon = True
-    timer.start()
+        time.sleep(600)  # 10 分鐘
 
-# 延遲啟動 keep-alive（等待 gunicorn 完成綁定 port 後再 ping）
-_init_timer = threading.Timer(30, keep_alive)
-_init_timer.daemon = True
-_init_timer.start()
+
+def start_keep_alive():
+    """啟動 keep-alive（確保只啟動一次）"""
+    global _keep_alive_started
+    if _keep_alive_started:
+        return
+    _keep_alive_started = True
+    t = threading.Thread(target=_keep_alive_loop, daemon=True)
+    t.start()
+
+
+# 在 Flask 第一次收到請求時啟動 keep-alive
+@app.before_request
+def _trigger_keep_alive():
+    start_keep_alive()
+    # 只需觸發一次，之後移除此 hook
+    app.before_request_funcs[None].remove(_trigger_keep_alive)
 
 
 # ===== 啟動 =====
