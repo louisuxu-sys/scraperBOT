@@ -511,6 +511,57 @@ def format_game_text(game, sport='basketball'):
     else:
         recommend = f'🔮 推薦：{fav} 獨贏'
 
+    # 期望值（EV）計算
+    ev_text = ''
+    odds_api = game.get('odds_api', {})
+    if odds_api:
+        try:
+            rec_odds = None  # 推薦項目對應的賠率
+            rec_prob = 0     # 推薦項目的估計勝率
+
+            if rec_type == 'spread_fav':
+                # 讓分方 → 優先用讓分賠率，備援獨贏賠率
+                if spread_fav == home:
+                    rec_odds_str = (odds_api.get('spread_home_odds') or odds_api.get('intl_spread_home_odds')
+                                    or odds_api.get('ml_home') or odds_api.get('guess_ml_home'))
+                else:
+                    rec_odds_str = (odds_api.get('spread_away_odds') or odds_api.get('intl_spread_away_odds')
+                                    or odds_api.get('ml_away') or odds_api.get('guess_ml_away'))
+                rec_prob = max(hw, aw) / 100
+                if rec_odds_str:
+                    rec_odds = float(rec_odds_str)
+
+            elif rec_type == 'spread_dog':
+                # 受讓方 → 優先用讓分賠率，備援獨贏賠率
+                if spread_dog == home:
+                    rec_odds_str = (odds_api.get('spread_home_odds') or odds_api.get('intl_spread_home_odds')
+                                    or odds_api.get('ml_home') or odds_api.get('guess_ml_home'))
+                else:
+                    rec_odds_str = (odds_api.get('spread_away_odds') or odds_api.get('intl_spread_away_odds')
+                                    or odds_api.get('ml_away') or odds_api.get('guess_ml_away'))
+                # 受讓方勝率 = 100 - 讓分方勝率（近似）
+                rec_prob = min(hw, aw) / 100 + 0.05  # 受讓有盤口保護，略加調整
+                rec_prob = min(rec_prob, 0.95)
+                if rec_odds_str:
+                    rec_odds = float(rec_odds_str)
+
+            else:
+                # 獨贏 → 用推薦隊伍的獨贏賠率
+                if fav == home:
+                    rec_odds_str = odds_api.get('ml_home') or odds_api.get('guess_ml_home')
+                else:
+                    rec_odds_str = odds_api.get('ml_away') or odds_api.get('guess_ml_away')
+                rec_prob = max(hw, aw) / 100
+                if rec_odds_str:
+                    rec_odds = float(rec_odds_str)
+
+            if rec_odds and rec_odds > 0 and rec_prob > 0:
+                ev = (rec_prob * rec_odds - 1) * 100
+                ev_sign = '+' if ev >= 0 else ''
+                ev_text = f'📈 期望值：{ev_sign}{ev:.1f}%'
+        except (ValueError, TypeError):
+            pass
+
     # 推薦過盤標記（依實際盤口判斷）
     win_mark = ''
     if game.get('status') == 'finished' and game.get('homeScore') is not None:
@@ -557,6 +608,8 @@ def format_game_text(game, sport='basketball'):
             f'🏠 {home}',
             recommend,
         ]
+    if ev_text:
+        lines.append(ev_text)
 
     return '\n'.join(lines)
 
