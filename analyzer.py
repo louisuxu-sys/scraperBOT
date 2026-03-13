@@ -368,6 +368,84 @@ def generate_analysis(game, sport='basketball'):
             lines.append(f'{away_name} 在交手紀錄中更勝一籌。')
             away_adj += 3
 
+    # 7. 賠率隱含概率分析（利用市場智慧補強判斷）
+    if odds_api:
+        ml_h_str = odds_api.get('ml_home') or odds_api.get('guess_ml_home')
+        ml_a_str = odds_api.get('ml_away') or odds_api.get('guess_ml_away')
+        if ml_h_str and ml_a_str:
+            try:
+                ml_h_val = float(ml_h_str)
+                ml_a_val = float(ml_a_str)
+                if ml_h_val > 1 and ml_a_val > 1:
+                    implied_h = 1 / ml_h_val
+                    implied_a = 1 / ml_a_val
+                    implied_total = implied_h + implied_a
+                    # 去除抽水後的真實隱含概率
+                    real_h = round(implied_h / implied_total * 100, 1)
+                    real_a = round(implied_a / implied_total * 100, 1)
+                    lines.append(f'【市場概率】盤口隱含勝率 🏠{home_name} {real_h}% / 🚌{away_name} {real_a}%')
+                    # 納入評分：市場認為誰強就加分
+                    if real_h > real_a + 10:
+                        home_adj += 5
+                        lines.append(f'→ 市場明顯看好 {home_name}，盤口傾斜度高。')
+                    elif real_a > real_h + 10:
+                        away_adj += 5
+                        lines.append(f'→ 市場明顯看好 {away_name}，盤口傾斜度高。')
+                    elif real_h > real_a:
+                        home_adj += 2
+                    elif real_a > real_h:
+                        away_adj += 2
+            except (ValueError, TypeError):
+                pass
+
+        # 玩家預測比例納入評分
+        h_pred_pct = odds_api.get('home_predict_pct')
+        a_pred_pct = odds_api.get('away_predict_pct')
+        if h_pred_pct and a_pred_pct:
+            try:
+                hp = float(h_pred_pct.replace('%', ''))
+                ap = float(a_pred_pct.replace('%', ''))
+                if hp > ap + 20:
+                    home_adj += 3
+                    lines.append(f'→ 玩家預測大幅偏向 {home_name}，市場信心十足。')
+                elif ap > hp + 20:
+                    away_adj += 3
+                    lines.append(f'→ 玩家預測大幅偏向 {away_name}，民意強烈看好。')
+                elif hp > ap + 5:
+                    home_adj += 1
+                elif ap > hp + 5:
+                    away_adj += 1
+            except (ValueError, TypeError):
+                pass
+
+    # 8. 連勝/連敗趨勢偵測
+    def detect_streak(record_str):
+        """從戰績字串偵測連勝/連敗"""
+        if not record_str:
+            return 0
+        m = re.search(r'(\d+)\s*連勝', record_str)
+        if m:
+            return int(m.group(1))
+        m = re.search(r'(\d+)\s*連敗', record_str)
+        if m:
+            return -int(m.group(1))
+        return 0
+
+    h_streak = detect_streak(rec.get('homeRecent'))
+    a_streak = detect_streak(rec.get('awayRecent'))
+    if h_streak >= 3:
+        lines.append(f'🔥 {home_name} 目前 {h_streak} 連勝，士氣高昂！')
+        home_adj += min(5, h_streak)
+    elif h_streak <= -3:
+        lines.append(f'❄️ {home_name} 目前 {abs(h_streak)} 連敗，狀態堪憂。')
+        away_adj += min(5, abs(h_streak))
+    if a_streak >= 3:
+        lines.append(f'🔥 {away_name} 目前 {a_streak} 連勝，客場氣勢強勁！')
+        away_adj += min(5, a_streak)
+    elif a_streak <= -3:
+        lines.append(f'❄️ {away_name} 目前 {abs(a_streak)} 連敗，信心不足。')
+        home_adj += min(5, abs(a_streak))
+
     # 沒有任何數據
     if not lines:
         if is_neutral:
@@ -376,7 +454,7 @@ def generate_analysis(game, sport='basketball'):
             lines.append(f'本場比賽 {home_name}（主）迎戰 {away_name}（客），主隊擁有主場優勢。')
         lines.append('建議關注兩隊近期傷病動態與輪休情況，作為投注參考依據。')
 
-    # 7. 總結
+    # 9. 總結
     total_adj = home_adj - away_adj
     if total_adj > 10:
         lines.append(f'📌 綜合評估：{home_name} 各項數據全面佔優，本場值得看好主勝方向。')
@@ -506,8 +584,10 @@ def format_game_text(game, sport='basketball'):
         total_line = round(exp_total / 5) * 5
         if analysis.get('confidence', 50) >= 55:
             recommend = f'🔮 推薦：大 {total_line} 分'
+            rec_type = 'over'
         else:
             recommend = f'🔮 推薦：小 {total_line} 分'
+            rec_type = 'under'
     else:
         recommend = f'🔮 推薦：{fav} 獨贏'
 
@@ -545,12 +625,28 @@ def format_game_text(game, sport='basketball'):
                 if rec_odds_str:
                     rec_odds = float(rec_odds_str)
 
+            elif rec_type == 'over':
+                # 大分 → 用大分賠率
+                rec_odds_str = (odds_api.get('total_over_odds') or odds_api.get('intl_total_over_odds'))
+                rec_prob = analysis.get('confidence', 50) / 100
+                if rec_odds_str:
+                    rec_odds = float(rec_odds_str)
+
+            elif rec_type == 'under':
+                # 小分 → 用小分賠率
+                rec_odds_str = (odds_api.get('total_under_odds') or odds_api.get('intl_total_under_odds'))
+                rec_prob = analysis.get('confidence', 50) / 100
+                if rec_odds_str:
+                    rec_odds = float(rec_odds_str)
+
             else:
-                # 獨贏 → 用推薦隊伍的獨贏賠率
+                # 獨贏 → 用推薦隊伍的獨贏賠率，備援讓分賠率
                 if fav == home:
-                    rec_odds_str = odds_api.get('ml_home') or odds_api.get('guess_ml_home')
+                    rec_odds_str = (odds_api.get('ml_home') or odds_api.get('guess_ml_home')
+                                    or odds_api.get('spread_home_odds') or odds_api.get('intl_spread_home_odds'))
                 else:
-                    rec_odds_str = odds_api.get('ml_away') or odds_api.get('guess_ml_away')
+                    rec_odds_str = (odds_api.get('ml_away') or odds_api.get('guess_ml_away')
+                                    or odds_api.get('spread_away_odds') or odds_api.get('intl_spread_away_odds'))
                 rec_prob = max(hw, aw) / 100
                 if rec_odds_str:
                     rec_odds = float(rec_odds_str)

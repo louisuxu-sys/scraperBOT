@@ -299,12 +299,71 @@ def fetch_guess_odds(league_id):
     return result
 
 
+# ─── 隊名別名表（playsport 不同頁面可能用不同名稱） ───
+_TEAM_ALIASES = {
+    '運動家': ['運動家', '奧克蘭運動家', '沙加緬度運動家'],
+    '守護者': ['守護者', '克里夫蘭守護者'],
+    '釀酒人': ['釀酒人', '密爾瓦基釀酒人'],
+    '小熊': ['小熊', '芝加哥小熊'],
+    '白襪': ['白襪', '芝加哥白襪'],
+    '教士': ['教士', '聖地牙哥教士'],
+    '天使': ['天使', '洛杉磯天使', 'LA天使'],
+    '道奇': ['道奇', '洛杉磯道奇', 'LA道奇'],
+    '落磯': ['落磯', '科羅拉多落磯'],
+    '遊騎兵': ['遊騎兵', '德州遊騎兵'],
+    '雙城': ['雙城', '明尼蘇達雙城'],
+    '藍鳥': ['藍鳥', '多倫多藍鳥'],
+    '洋基': ['洋基', '紐約洋基'],
+    '大都會': ['大都會', '紐約大都會'],
+    '紅襪': ['紅襪', '波士頓紅襪'],
+    '金鶯': ['金鶯', '巴爾的摩金鶯'],
+    '太空人': ['太空人', '休士頓太空人'],
+    '水手': ['水手', '西雅圖水手'],
+    '皇家': ['皇家', '堪薩斯皇家'],
+    '老虎': ['老虎', '底特律老虎'],
+    '紅雀': ['紅雀', '聖路易紅雀'],
+    '紅人': ['紅人', '辛辛那提紅人'],
+    '費城人': ['費城人', '費城費城人'],
+    '勇士': ['勇士', '亞特蘭大勇士'],
+    '光芒': ['光芒', '坦帕灣光芒'],
+    '海盜': ['海盜', '匹茲堡海盜'],
+    '馬林魚': ['馬林魚', '邁阿密馬林魚'],
+    '響尾蛇': ['響尾蛇', '亞利桑那響尾蛇'],
+    '巨人': ['巨人', '舊金山巨人'],
+    '國民': ['國民', '華盛頓國民'],
+    '塞爾提克': ['塞爾提克', '塞爾提', '波士頓塞爾提克'],
+}
+
+# 建立反向查詢表：任何別名 → 標準名
+_ALIAS_LOOKUP = {}
+for _std, _aliases in _TEAM_ALIASES.items():
+    for _a in _aliases:
+        _ALIAS_LOOKUP[_a] = _std
+
+
+def _normalize_name(name):
+    """將隊名正規化為標準短名"""
+    if name in _ALIAS_LOOKUP:
+        return _ALIAS_LOOKUP[name]
+    # 嘗試尾部匹配（例如 '密爾瓦基釀酒人' → '釀酒人'）
+    for std, aliases in _TEAM_ALIASES.items():
+        for a in aliases:
+            if name.endswith(std) or std.endswith(name) or a in name or name in a:
+                return std
+    return name
+
+
 # ─── 隊名模糊配對 ───
 def _name_match(name1, name2):
-    """兩個隊名是否匹配（支援截斷/全名）"""
+    """兩個隊名是否匹配（支援截斷/全名/別名）"""
     if not name1 or not name2:
         return False
-    return name1 == name2 or name1 in name2 or name2 in name1
+    if name1 == name2 or name1 in name2 or name2 in name1:
+        return True
+    # 透過別名表正規化後比對
+    n1 = _normalize_name(name1)
+    n2 = _normalize_name(name2)
+    return n1 == n2 or n1 in n2 or n2 in n1
 
 
 # ─── 主要入口：合併三個來源，配對到賽事 ───
@@ -389,10 +448,14 @@ def match_odds_to_games(games, sport='basketball'):
             # 相容現有邏輯：優先用運彩盤讓分，無則用國際盤
             spread = best.get('spread') or best.get('intl_spread_home')
             if spread:
-                game['odds']['spread'] = spread
+                game.setdefault('odds', {})['spread'] = spread
                 game['odds']['source'] = 'playsport'
             matched += 1
+        else:
+            print(f'[Odds] UNMATCHED: {away_name} vs {home_name}')
 
     if matched:
         print(f'[Odds] Matched {matched}/{len(games)} games')
+    else:
+        print(f'[Odds] WARNING: 0/{len(games)} games matched')
     return games
