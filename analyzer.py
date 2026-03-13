@@ -548,8 +548,7 @@ def format_game_text(game, sport='basketball'):
                 ev = (win_prob * actual_odds - 1) * 100
 
             ev_sign = '+' if ev >= 0 else ''
-            odds_src = '實際' if (real_odds and actual_odds != 1.91) else '估算'
-            ev_text = f'📈 期望值：{ev_sign}{ev:.1f}%（{odds_src}賠率 {actual_odds:.2f}）'
+            ev_text = f'📈 期望值：{ev_sign}{ev:.1f}%'
         except Exception:
             pass
 
