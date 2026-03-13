@@ -511,6 +511,12 @@ def handle_gen_code(operator_uid, params):
 
 # ===== Flask Routes =====
 
+@app.route('/', methods=['GET'])
+def index():
+    """根路徑回應（Render health check 用）"""
+    return {'status': 'ok', 'service': 'sportiq-linebot'}
+
+
 @app.route('/callback', methods=['POST'])
 def callback():
     """LINE Webhook callback"""
