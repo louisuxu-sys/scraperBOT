@@ -4,6 +4,11 @@ AI 分析引擎（規則式）
 """
 import re
 
+try:
+    from team_history import fetch_team_history
+except ImportError:
+    fetch_team_history = None
+
 
 def parse_record(s):
     """解析戰績字串：'30勝25敗' / '33 - 19' / '客12 - 13' / '8 - 2 , 5連勝'"""
@@ -276,6 +281,63 @@ def generate_analysis(game, sport='basketball'):
     elif a_streak <= -3:
         lines.append(f'❄️ {away_name} 目前 {abs(a_streak)} 連敗，信心不足。')
         home_adj += min(5, abs(a_streak))
+
+    # 8. 歷史賽事深度分析（playsport gamesData/teams）
+    if fetch_team_history and game.get('status') != 'finished':
+        try:
+            h_hist = fetch_team_history(home_name, sport)
+            a_hist = fetch_team_history(away_name, sport)
+
+            if h_hist and h_hist.get('summary'):
+                hs = h_hist['summary']
+                lines.append(f'【{home_name} 近況】{hs["total"]}場 {hs["wins"]}勝{hs["losses"]}敗'
+                             f'（勝率{hs["win_pct"]}%）'
+                             f' | 場均得{hs["avg_scored"]} 失{hs["avg_allowed"]}')
+                if hs['ats_wins'] + hs['ats_losses'] > 0:
+                    lines.append(f'  讓分過盤 {hs["ats_wins"]}-{hs["ats_losses"]}'
+                                 f'（{hs["ats_pct"]}%）'
+                                 f' | 大分 {hs["over_count"]}-{hs["under_count"]}'
+                                 f'（{hs["over_pct"]}%）')
+                # 勝率高 → 加分
+                if hs['win_pct'] >= 60:
+                    home_adj += 3
+                elif hs['win_pct'] <= 40:
+                    away_adj += 2
+                # ATS 趨勢加分
+                if hs['ats_pct'] >= 60:
+                    home_adj += 2
+                elif hs['ats_pct'] <= 35:
+                    away_adj += 1
+
+            if a_hist and a_hist.get('summary'):
+                as_ = a_hist['summary']
+                lines.append(f'【{away_name} 近況】{as_["total"]}場 {as_["wins"]}勝{as_["losses"]}敗'
+                             f'（勝率{as_["win_pct"]}%）'
+                             f' | 場均得{as_["avg_scored"]} 失{as_["avg_allowed"]}')
+                if as_['ats_wins'] + as_['ats_losses'] > 0:
+                    lines.append(f'  讓分過盤 {as_["ats_wins"]}-{as_["ats_losses"]}'
+                                 f'（{as_["ats_pct"]}%）'
+                                 f' | 大分 {as_["over_count"]}-{as_["under_count"]}'
+                                 f'（{as_["over_pct"]}%）')
+                if as_['win_pct'] >= 60:
+                    away_adj += 3
+                elif as_['win_pct'] <= 40:
+                    home_adj += 2
+                if as_['ats_pct'] >= 60:
+                    away_adj += 2
+                elif as_['ats_pct'] <= 35:
+                    home_adj += 1
+
+            # 大小分趨勢對比
+            if h_hist and a_hist:
+                h_over = h_hist['summary'].get('over_pct', 50)
+                a_over = a_hist['summary'].get('over_pct', 50)
+                if h_over >= 60 and a_over >= 60:
+                    lines.append('📊 兩隊近期大分趨勢明顯，本場大分值得關注。')
+                elif h_over <= 40 and a_over <= 40:
+                    lines.append('📊 兩隊近期小分趨勢明顯，本場小分機率較高。')
+        except Exception as e:
+            print(f'[Analyzer] Team history error: {e}')
 
     # 沒有任何數據
     if not lines:
