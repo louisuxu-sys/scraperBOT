@@ -5,9 +5,10 @@ AI 分析引擎（規則式）
 import re
 
 try:
-    from team_history import fetch_team_history
+    from team_history import fetch_team_history, get_matchup_history
 except ImportError:
     fetch_team_history = None
+    get_matchup_history = None
 
 
 def parse_record(s):
@@ -285,8 +286,11 @@ def generate_analysis(game, sport='basketball'):
     # 8. 歷史賽事深度分析（playsport gamesData/teams）
     if fetch_team_history and game.get('status') != 'finished':
         try:
-            h_hist = fetch_team_history(home_name, sport)
-            a_hist = fetch_team_history(away_name, sport)
+            if get_matchup_history:
+                h_hist, a_hist = get_matchup_history(home_name, away_name, sport)
+            else:
+                h_hist = fetch_team_history(home_name, sport)
+                a_hist = fetch_team_history(away_name, sport)
 
             if h_hist and h_hist.get('summary'):
                 hs = h_hist['summary']
@@ -485,6 +489,41 @@ def format_game_text(game, sport='basketball'):
         recommend = f'🔮 推薦：{fav} 獨贏'
 
 
+    # 期望值（EV）計算 — 用分析概率 + 標準賠率估算
+    ev_text = ''
+    if game.get('status') != 'finished':
+        try:
+            rec_prob = 0
+            # 讓分盤標準賠率 ≈ 1.91（-110）
+            SPREAD_ODDS = 1.91
+            # 大小分標準賠率 ≈ 1.91
+            OU_ODDS = 1.91
+
+            if rec_type in ('spread_fav', 'spread_dog'):
+                rec_prob = max(hw, aw) / 100 if rec_type == 'spread_fav' else min(hw, aw) / 100 + 0.05
+                rec_prob = min(rec_prob, 0.95)
+                ev = (rec_prob * SPREAD_ODDS - 1) * 100
+            elif rec_type in ('over', 'under'):
+                rec_prob = analysis.get('confidence', 50) / 100
+                ev = (rec_prob * OU_ODDS - 1) * 100
+            else:
+                # 獨贏：從讓分估算賠率
+                win_prob = max(hw, aw) / 100
+                if abs_spread >= 10:
+                    est_odds = 1.20
+                elif abs_spread >= 5:
+                    est_odds = 1.45
+                elif abs_spread >= 2:
+                    est_odds = 1.65
+                else:
+                    est_odds = 1.85
+                ev = (win_prob * est_odds - 1) * 100
+
+            ev_sign = '+' if ev >= 0 else ''
+            ev_text = f'📈 期望值：{ev_sign}{ev:.1f}%'
+        except Exception:
+            pass
+
     # 推薦過盤標記（依實際盤口判斷）
     win_mark = ''
     if game.get('status') == 'finished' and game.get('homeScore') is not None:
@@ -531,6 +570,8 @@ def format_game_text(game, sport='basketball'):
             f'🏠 {home}',
             recommend,
         ]
+    if ev_text:
+        lines.append(ev_text)
     return '\n'.join(lines)
 
 

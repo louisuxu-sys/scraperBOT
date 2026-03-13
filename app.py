@@ -63,6 +63,24 @@ handler = WebhookHandler(CHANNEL_SECRET)
 # 台灣時區
 TW_TZ = timezone(timedelta(hours=8))
 
+
+def show_loading(user_id, seconds=20):
+    """顯示 LINE 聊天室載入動畫（讓用戶知道系統正在處理）"""
+    try:
+        import json
+        req = urllib.request.Request(
+            'https://api.line.me/v2/bot/chat/loading',
+            data=json.dumps({'chatId': user_id, 'loadingSeconds': seconds}).encode(),
+            headers={
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {CHANNEL_ACCESS_TOKEN}',
+            },
+            method='POST',
+        )
+        urllib.request.urlopen(req, timeout=5)
+    except Exception as e:
+        print(f'[Loading] animation error: {e}')
+
 # 運動關鍵字對照
 SPORT_KEYWORDS = {
     '籃球': 'basketball', 'nba': 'basketball', 'sbl': 'basketball',
@@ -715,6 +733,7 @@ def handle_message(event):
                 '▸ 輸入「查詢到期」可查看會員狀態'
             )
         else:
+            show_loading(uid)
             league_name = keyword  # e.g. "NBA"
             gamedate = get_date_str(date_offset)
             display_date = get_display_date(date_offset)
@@ -772,6 +791,7 @@ def handle_message(event):
             )
             qr_items = build_league_qr(sport, cmd_prefix)
         elif action == 'analysis':
+            show_loading(uid)
             session = _user_session.get(uid, {})
             if date_offset == 0 and session.get('date_offset'):
                 date_offset = session['date_offset']

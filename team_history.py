@@ -7,6 +7,7 @@
 import re
 import time
 import requests
+from concurrent.futures import ThreadPoolExecutor
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
@@ -55,7 +56,7 @@ SPORT_LEAGUE_MAP = {
 
 def _safe_get(url):
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=12)
+        resp = requests.get(url, headers=HEADERS, timeout=8)
         resp.encoding = 'utf-8'
         return resp.text
     except Exception as e:
@@ -380,10 +381,13 @@ def _calc_summary(games):
 
 def get_matchup_history(home_name, away_name, sport='basketball'):
     """
-    取得兩隊的歷史資料，回傳用於分析的摘要。
+    取得兩隊的歷史資料（並行請求加速），回傳用於分析的摘要。
     """
-    home_hist = fetch_team_history(home_name, sport)
-    away_hist = fetch_team_history(away_name, sport)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        f_home = executor.submit(fetch_team_history, home_name, sport)
+        f_away = executor.submit(fetch_team_history, away_name, sport)
+        home_hist = f_home.result()
+        away_hist = f_away.result()
     return home_hist, away_hist
 
 
