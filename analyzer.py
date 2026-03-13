@@ -598,65 +598,69 @@ def format_game_text(game, sport='basketball'):
         try:
             rec_odds = None  # 推薦項目對應的賠率
             rec_prob = 0     # 推薦項目的估計勝率
+            rec_odds_str = None
+
+            # 所有可能的賠率 key（用於最終 fallback）
+            _all_home_odds_keys = ['ml_home', 'guess_ml_home', 'spread_home_odds',
+                                   'intl_spread_home_odds', 'tw_spread_home_odds']
+            _all_away_odds_keys = ['ml_away', 'guess_ml_away', 'spread_away_odds',
+                                   'intl_spread_away_odds', 'tw_spread_away_odds']
+
+            def _find_odds(keys):
+                """從 odds_api 中找到第一個有值的賠率"""
+                for k in keys:
+                    v = odds_api.get(k)
+                    if v:
+                        return v
+                return None
 
             if rec_type == 'spread_fav':
-                # 讓分方 → 優先用讓分賠率，備援獨贏賠率
                 if spread_fav == home:
-                    rec_odds_str = (odds_api.get('spread_home_odds') or odds_api.get('intl_spread_home_odds')
-                                    or odds_api.get('ml_home') or odds_api.get('guess_ml_home'))
+                    rec_odds_str = _find_odds(_all_home_odds_keys)
                 else:
-                    rec_odds_str = (odds_api.get('spread_away_odds') or odds_api.get('intl_spread_away_odds')
-                                    or odds_api.get('ml_away') or odds_api.get('guess_ml_away'))
+                    rec_odds_str = _find_odds(_all_away_odds_keys)
                 rec_prob = max(hw, aw) / 100
-                if rec_odds_str:
-                    rec_odds = float(rec_odds_str)
 
             elif rec_type == 'spread_dog':
-                # 受讓方 → 優先用讓分賠率，備援獨贏賠率
                 if spread_dog == home:
-                    rec_odds_str = (odds_api.get('spread_home_odds') or odds_api.get('intl_spread_home_odds')
-                                    or odds_api.get('ml_home') or odds_api.get('guess_ml_home'))
+                    rec_odds_str = _find_odds(_all_home_odds_keys)
                 else:
-                    rec_odds_str = (odds_api.get('spread_away_odds') or odds_api.get('intl_spread_away_odds')
-                                    or odds_api.get('ml_away') or odds_api.get('guess_ml_away'))
-                # 受讓方勝率 = 100 - 讓分方勝率（近似）
-                rec_prob = min(hw, aw) / 100 + 0.05  # 受讓有盤口保護，略加調整
+                    rec_odds_str = _find_odds(_all_away_odds_keys)
+                rec_prob = min(hw, aw) / 100 + 0.05
                 rec_prob = min(rec_prob, 0.95)
-                if rec_odds_str:
-                    rec_odds = float(rec_odds_str)
 
             elif rec_type == 'over':
-                # 大分 → 用大分賠率
-                rec_odds_str = (odds_api.get('total_over_odds') or odds_api.get('intl_total_over_odds'))
+                rec_odds_str = (odds_api.get('total_over_odds') or odds_api.get('intl_total_over_odds')
+                                or odds_api.get('tw_total_over_odds'))
                 rec_prob = analysis.get('confidence', 50) / 100
-                if rec_odds_str:
-                    rec_odds = float(rec_odds_str)
 
             elif rec_type == 'under':
-                # 小分 → 用小分賠率
-                rec_odds_str = (odds_api.get('total_under_odds') or odds_api.get('intl_total_under_odds'))
+                rec_odds_str = (odds_api.get('total_under_odds') or odds_api.get('intl_total_under_odds')
+                                or odds_api.get('tw_total_under_odds'))
                 rec_prob = analysis.get('confidence', 50) / 100
-                if rec_odds_str:
-                    rec_odds = float(rec_odds_str)
 
             else:
-                # 獨贏 → 用推薦隊伍的獨贏賠率，備援讓分賠率
+                # 獨贏 → 完整 fallback 鏈
                 if fav == home:
-                    rec_odds_str = (odds_api.get('ml_home') or odds_api.get('guess_ml_home')
-                                    or odds_api.get('spread_home_odds') or odds_api.get('intl_spread_home_odds'))
+                    rec_odds_str = _find_odds(_all_home_odds_keys)
                 else:
-                    rec_odds_str = (odds_api.get('ml_away') or odds_api.get('guess_ml_away')
-                                    or odds_api.get('spread_away_odds') or odds_api.get('intl_spread_away_odds'))
+                    rec_odds_str = _find_odds(_all_away_odds_keys)
                 rec_prob = max(hw, aw) / 100
-                if rec_odds_str:
-                    rec_odds = float(rec_odds_str)
+
+            if rec_odds_str:
+                rec_odds = float(rec_odds_str)
 
             if rec_odds and rec_odds > 0 and rec_prob > 0:
                 ev = (rec_prob * rec_odds - 1) * 100
                 ev_sign = '+' if ev >= 0 else ''
                 ev_text = f'📈 期望值：{ev_sign}{ev:.1f}%'
-        except (ValueError, TypeError):
-            pass
+            else:
+                print(f'[EV] No odds for {away} vs {home}, rec_type={rec_type}, '
+                      f'keys={[k for k in odds_api if "odds" in k or "ml" in k]}')
+        except (ValueError, TypeError) as e:
+            print(f'[EV] Error for {away} vs {home}: {e}')
+    else:
+        print(f'[EV] No odds_api data for {away} vs {home}')
 
     # 推薦過盤標記（依實際盤口判斷）
     win_mark = ''

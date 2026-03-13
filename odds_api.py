@@ -443,6 +443,24 @@ def match_odds_to_games(games, sport='basketball'):
                         best[k] = v
                 break
 
+        # 如果 predict/games + guess 都沒配到，嘗試只用 guess（放寬：只配一邊隊名）
+        if not best:
+            for guess_gid, guess_info in all_guess.items():
+                gh = guess_info.get('home', '')
+                ga = guess_info.get('away', '')
+                if (_name_match(home_name, gh) or _name_match(away_name, ga)):
+                    # 單邊配對成功，再驗證另一邊不衝突
+                    if _name_match(home_name, gh) and ga and not _name_match(away_name, ga):
+                        continue  # away 衝突，跳過
+                    if _name_match(away_name, ga) and gh and not _name_match(home_name, gh):
+                        continue  # home 衝突，跳過
+                    best = {'home': home_name, 'away': away_name, 'source': 'playsport'}
+                    for k, v in guess_info.items():
+                        if k not in ('home', 'away') and v:
+                            best[k] = v
+                    print(f'[Odds] PARTIAL match: {away_name} vs {home_name} (guess partial)')
+                    break
+
         if best:
             game['odds_api'] = best
             # 相容現有邏輯：優先用運彩盤讓分，無則用國際盤
@@ -452,7 +470,12 @@ def match_odds_to_games(games, sport='basketball'):
                 game['odds']['source'] = 'playsport'
             matched += 1
         else:
+            # 詳細日誌：列出 playsport 有的隊伍
+            ps_teams = [(info.get('away', ''), info.get('home', '')) for info in all_games_odds]
+            guess_teams = [(v.get('away', ''), v.get('home', '')) for v in all_guess.values()]
             print(f'[Odds] UNMATCHED: {away_name} vs {home_name}')
+            print(f'[Odds]   predict teams: {ps_teams[:5]}')
+            print(f'[Odds]   guess teams: {list(guess_teams)[:5]}')
 
     if matched:
         print(f'[Odds] Matched {matched}/{len(games)} games')
