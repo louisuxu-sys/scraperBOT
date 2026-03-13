@@ -15,40 +15,55 @@ from firebase_admin import credentials, firestore
 
 TW_TZ = timezone(timedelta(hours=8))
 
-# ===== Firebase 初始化 =====
-
-_FIREBASE_CRED_JSON = os.environ.get('FIREBASE_CREDENTIALS', '')
+# ===== Firebase 延遲初始化（避免阻塞 gunicorn 啟動） =====
 
 _firebase_ok = False
+_firebase_init_done = False
+db = None
 
-if _FIREBASE_CRED_JSON:
-    print(f'[Firebase] FIREBASE_CREDENTIALS found, length={len(_FIREBASE_CRED_JSON)}')
-    try:
-        cred_dict = json.loads(_FIREBASE_CRED_JSON)
-        cred = credentials.Certificate(cred_dict)
-        firebase_admin.initialize_app(cred)
-        _firebase_ok = True
-        print('[Firebase] ✅ Initialized from env var')
-    except Exception as e:
-        print(f'[Firebase] ❌ Failed to parse FIREBASE_CREDENTIALS: {e}')
-        print(f'[Firebase] First 50 chars: {_FIREBASE_CRED_JSON[:50]}')
 
-if not _firebase_ok:
-    # 本地開發：從檔案讀取
-    cred_path = os.path.join(os.path.dirname(__file__), 'firebase-key.json')
-    if os.path.exists(cred_path):
+def _init_firebase():
+    """延遲初始化 Firebase，首次使用時才執行"""
+    global _firebase_ok, _firebase_init_done, db
+    if _firebase_init_done:
+        return
+    _firebase_init_done = True
+
+    _FIREBASE_CRED_JSON = os.environ.get('FIREBASE_CREDENTIALS', '')
+
+    if _FIREBASE_CRED_JSON:
+        print(f'[Firebase] FIREBASE_CREDENTIALS found, length={len(_FIREBASE_CRED_JSON)}')
         try:
-            cred = credentials.Certificate(cred_path)
+            cred_dict = json.loads(_FIREBASE_CRED_JSON)
+            cred = credentials.Certificate(cred_dict)
             firebase_admin.initialize_app(cred)
             _firebase_ok = True
-            print('[Firebase] ✅ Initialized from firebase-key.json')
+            print('[Firebase] ✅ Initialized from env var')
         except Exception as e:
-            print(f'[Firebase] ❌ Failed to load firebase-key.json: {e}')
+            print(f'[Firebase] ❌ Failed to parse FIREBASE_CREDENTIALS: {e}')
+            print(f'[Firebase] First 50 chars: {_FIREBASE_CRED_JSON[:50]}')
 
-if not _firebase_ok:
-    print('[Firebase] ⚠️ No credentials found! Firestore will not work.')
+    if not _firebase_ok:
+        cred_path = os.path.join(os.path.dirname(__file__), 'firebase-key.json')
+        if os.path.exists(cred_path):
+            try:
+                cred = credentials.Certificate(cred_path)
+                firebase_admin.initialize_app(cred)
+                _firebase_ok = True
+                print('[Firebase] ✅ Initialized from firebase-key.json')
+            except Exception as e:
+                print(f'[Firebase] ❌ Failed to load firebase-key.json: {e}')
 
-db = firestore.client() if _firebase_ok else None
+    if not _firebase_ok:
+        print('[Firebase] ⚠️ No credentials found! Firestore will not work.')
+    else:
+        db = firestore.client()
+
+
+def _get_db():
+    """取得 Firestore client（自動初始化）"""
+    _init_firebase()
+    return db
 
 # 永久管理員（從環境變數讀取）
 _ENV_ADMINS = [uid.strip() for uid in os.environ.get('ADMIN_UIDS', '').split(',') if uid.strip()]
@@ -70,36 +85,40 @@ def is_admin(uid):
     """檢查是否為管理員（環境變數 + Firestore）"""
     if uid in _ENV_ADMINS:
         return True
-    if not db:
+    _db = _get_db()
+    if not _db:
         return False
-    doc = db.collection('admins').document(uid).get()
+    doc = _db.collection('admins').document(uid).get()
     return doc.exists
 
 
 def add_admin(uid):
     """新增管理員"""
-    if not db or is_admin(uid):
+    _db = _get_db()
+    if not _db or is_admin(uid):
         return False
-    db.collection('admins').document(uid).set({'created_at': datetime.now(TW_TZ).isoformat()})
+    _db.collection('admins').document(uid).set({'created_at': datetime.now(TW_TZ).isoformat()})
     return True
 
 
 def remove_admin(uid):
     """移除管理員（環境變數管理員無法移除）"""
-    if uid in _ENV_ADMINS or not db:
+    _db = _get_db()
+    if uid in _ENV_ADMINS or not _db:
         return False
-    doc = db.collection('admins').document(uid).get()
+    doc = _db.collection('admins').document(uid).get()
     if doc.exists:
-        db.collection('admins').document(uid).delete()
+        _db.collection('admins').document(uid).delete()
         return True
     return False
 
 
 def get_admin_list():
     """取得全部管理員列表"""
-    if not db:
+    _db = _get_db()
+    if not _db:
         return list(_ENV_ADMINS)
-    docs = db.collection('admins').stream()
+    docs = _db.collection('admins').stream()
     db_admins = [doc.id for doc in docs]
     return list(set(_ENV_ADMINS + db_admins))
 
@@ -120,18 +139,19 @@ def generate_code(admin_uid, duration_label):
     回傳: (code_str, duration_min) 或 (None, None)
     """
     dur_key = duration_label.upper()
-    if dur_key not in DURATION_OPTIONS or not db:
+    _db = _get_db()
+    if dur_key not in DURATION_OPTIONS or not _db:
         return None, None
 
     duration_min, display_name = DURATION_OPTIONS[dur_key]
 
     # 確保序號不重複
     code = _generate_code_str()
-    while db.collection('codes').document(code).get().exists:
+    while _db.collection('codes').document(code).get().exists:
         code = _generate_code_str()
 
     now = datetime.now(TW_TZ).isoformat()
-    db.collection('codes').document(code).set({
+    _db.collection('codes').document(code).set({
         'duration_min': duration_min,
         'duration_label': duration_label,
         'created_by': admin_uid,
@@ -148,9 +168,10 @@ def redeem_code(uid, code):
     回傳: (success: bool, message: str)
     """
     code = code.strip().upper()
-    if not db:
+    _db = _get_db()
+    if not _db:
         return False, '❌ 系統維護中，請稍後再試。'
-    doc_ref = db.collection('codes').document(code)
+    doc_ref = _db.collection('codes').document(code)
     doc = doc_ref.get()
 
     if not doc.exists:
@@ -170,7 +191,7 @@ def redeem_code(uid, code):
 
     # 計算會員到期時間
     duration_min = code_info['duration_min']
-    member_doc = db.collection('members').document(uid).get()
+    member_doc = _db.collection('members').document(uid).get()
 
     if member_doc.exists:
         try:
@@ -184,7 +205,7 @@ def redeem_code(uid, code):
     else:
         new_expires = now + timedelta(minutes=duration_min)
 
-    db.collection('members').document(uid).set({
+    _db.collection('members').document(uid).set({
         'expires_at': new_expires.isoformat(),
     })
 
@@ -206,10 +227,11 @@ def is_member_active(uid):
     # 管理員永遠有效
     if is_admin(uid):
         return True
-    if not db:
+    _db = _get_db()
+    if not _db:
         return False
 
-    doc = db.collection('members').document(uid).get()
+    doc = _db.collection('members').document(uid).get()
     if not doc.exists:
         return False
 
@@ -225,10 +247,11 @@ def get_member_expiry(uid):
     """取得會員到期時間，回傳格式化字串"""
     if is_admin(uid):
         return '♾️ 管理員（永久有效）'
-    if not db:
+    _db = _get_db()
+    if not _db:
         return None
 
-    doc = db.collection('members').document(uid).get()
+    doc = _db.collection('members').document(uid).get()
     if not doc.exists:
         return None
 
@@ -260,7 +283,8 @@ def get_member_expiry(uid):
 
 def get_all_codes(admin_uid):
     """取得所有序號列表（管理員用）"""
-    if not db:
+    _db = _get_db()
+    if not _db:
         return {}
-    docs = db.collection('codes').stream()
+    docs = _db.collection('codes').stream()
     return {doc.id: doc.to_dict() for doc in docs}
