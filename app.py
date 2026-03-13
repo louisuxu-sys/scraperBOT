@@ -22,6 +22,7 @@ from linebot.v3.messaging import (
     ApiClient,
     MessagingApi,
     ReplyMessageRequest,
+    PushMessageRequest,
     TextMessage,
     QuickReply,
     QuickReplyItem,
@@ -80,6 +81,59 @@ def show_loading(user_id, seconds=20):
         urllib.request.urlopen(req, timeout=5)
     except Exception as e:
         print(f'[Loading] animation error: {e}')
+
+
+def reply_loading(reply_token):
+    """立即回覆「數據讀取中」，讓用戶知道系統正在處理"""
+    try:
+        with ApiClient(configuration) as api_client:
+            line_bot_api = MessagingApi(api_client)
+            line_bot_api.reply_message_with_http_info(
+                ReplyMessageRequest(
+                    reply_token=reply_token,
+                    messages=[TextMessage(text='⏳ 數據讀取中，請稍候...')]
+                )
+            )
+    except Exception as e:
+        print(f'[ReplyLoading] error: {e}')
+
+
+def push_result(user_id, reply_text, qr_items):
+    """用 push_message 推送實際結果"""
+    try:
+        quick_reply = QuickReply(items=qr_items[:13])
+
+        if len(reply_text) <= 4500:
+            messages = [TextMessage(text=reply_text, quick_reply=quick_reply)]
+        else:
+            chunks = []
+            current = ''
+            for block in reply_text.split('\n\n'):
+                if current and len(current) + len(block) + 2 > 4500:
+                    chunks.append(current.strip())
+                    current = block
+                else:
+                    current = current + '\n\n' + block if current else block
+            if current.strip():
+                chunks.append(current.strip())
+            chunks = chunks[:5]
+            messages = []
+            for i, chunk in enumerate(chunks):
+                if i == len(chunks) - 1:
+                    messages.append(TextMessage(text=chunk, quick_reply=quick_reply))
+                else:
+                    messages.append(TextMessage(text=chunk))
+
+        with ApiClient(configuration) as api_client:
+            line_bot_api = MessagingApi(api_client)
+            line_bot_api.push_message_with_http_info(
+                PushMessageRequest(
+                    to=user_id,
+                    messages=messages
+                )
+            )
+    except Exception as e:
+        print(f'[PushResult] error: {e}')
 
 # 運動關鍵字對照
 SPORT_KEYWORDS = {
@@ -721,7 +775,7 @@ def handle_message(event):
             )
             qr_items = build_league_qr(sport, f'{cmd_prefix} {sport_name}')
 
-    # ===== 四層選單：第四層 顯示聯賽賽事/賽果 =====
+    # ===== 四層選單：第四層 顯示聯賽賽事/賽果（慢速，用 reply+push）=====
     elif action in ('menu_games_events', 'menu_games_results'):
         if not is_member_active(uid):
             reply = (
@@ -733,31 +787,38 @@ def handle_message(event):
                 '▸ 輸入「查詢到期」可查看會員狀態'
             )
         else:
-            show_loading(uid)
-            league_name = keyword  # e.g. "NBA"
-            gamedate = get_date_str(date_offset)
-            display_date = get_display_date(date_offset)
-            all_games = get_games_cached(sport, gamedate)
-            # 篩選該聯賽的比賽
-            league_games = [g for g in all_games if g.get('league') == league_name]
-            _user_session[uid] = {'date_offset': date_offset, 'sport': sport}
+            # 立即回覆載入中，背景處理後 push 結果
+            reply_loading(event.reply_token)
 
-            sport_name = SPORT_DISPLAY.get(sport, '')
-            cmd_map = {0: '今日賽事', 1: '明日賽事', -1: '昨日賽果'}
-            if action == 'menu_games_results' and date_offset == 0:
-                cmd_label = '今日賽果'
-            else:
-                cmd_label = cmd_map.get(date_offset, '今日賽事')
-            cmd_prefix = f'{cmd_label} {sport_name} {league_name}'
+            def _bg_games():
+                try:
+                    league_name = keyword
+                    gamedate = get_date_str(date_offset)
+                    display_date = get_display_date(date_offset)
+                    all_games = get_games_cached(sport, gamedate)
+                    league_games = [g for g in all_games if g.get('league') == league_name]
+                    _user_session[uid] = {'date_offset': date_offset, 'sport': sport}
 
-            if action == 'menu_games_results':
-                # 賽果模式：用 format_yesterday_results 顯示結算
-                reply = format_yesterday_results(league_games, sport, display_date, title=cmd_label)
-                qr_items = build_league_qr(sport, f'{cmd_label} {sport_name}')
-            else:
-                # 賽事模式：用 format_league_games_text 顯示賽事
-                reply = format_league_games_text(league_games, league_name, sport, display_date)
-                qr_items = build_game_qr(league_games, cmd_prefix)
+                    sport_name = SPORT_DISPLAY.get(sport, '')
+                    cmd_map = {0: '今日賽事', 1: '明日賽事', -1: '昨日賽果'}
+                    if action == 'menu_games_results' and date_offset == 0:
+                        cmd_label = '今日賽果'
+                    else:
+                        cmd_label = cmd_map.get(date_offset, '今日賽事')
+                    cmd_prefix = f'{cmd_label} {sport_name} {league_name}'
+
+                    if action == 'menu_games_results':
+                        result = format_yesterday_results(league_games, sport, display_date, title=cmd_label)
+                        qr = build_league_qr(sport, f'{cmd_label} {sport_name}')
+                    else:
+                        result = format_league_games_text(league_games, league_name, sport, display_date)
+                        qr = build_game_qr(league_games, cmd_prefix)
+                    push_result(uid, result, qr)
+                except Exception as e:
+                    print(f'[BgGames] error: {e}')
+
+            threading.Thread(target=_bg_games, daemon=True).start()
+            return  # 已用 reply_token 回覆載入中，不再走底部 reply
 
     # ===== 舊的直接輸入運動名稱（相容）=====
     elif action in ('list', 'analysis'):
@@ -791,13 +852,26 @@ def handle_message(event):
             )
             qr_items = build_league_qr(sport, cmd_prefix)
         elif action == 'analysis':
-            show_loading(uid)
-            session = _user_session.get(uid, {})
-            if date_offset == 0 and session.get('date_offset'):
-                date_offset = session['date_offset']
-            if not sport and session.get('sport'):
-                sport = session['sport']
-            reply = handle_analysis(sport, date_offset, keyword)
+            # 立即回覆載入中，背景處理後 push 結果
+            reply_loading(event.reply_token)
+
+            def _bg_analysis():
+                try:
+                    _date_offset = date_offset
+                    _sport = sport
+                    session = _user_session.get(uid, {})
+                    if _date_offset == 0 and session.get('date_offset'):
+                        _date_offset = session['date_offset']
+                    if not _sport and session.get('sport'):
+                        _sport = session['sport']
+                    result = handle_analysis(_sport, _date_offset, keyword)
+                    qr = build_main_menu_qr()
+                    push_result(uid, result, qr)
+                except Exception as e:
+                    print(f'[BgAnalysis] error: {e}')
+
+            threading.Thread(target=_bg_analysis, daemon=True).start()
+            return  # 已用 reply_token 回覆載入中
     else:
         reply = build_help_message()
 

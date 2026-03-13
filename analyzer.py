@@ -10,6 +10,11 @@ except ImportError:
     fetch_team_history = None
     get_matchup_history = None
 
+try:
+    from playsport_data import get_game_odds
+except ImportError:
+    get_game_odds = None
+
 
 def parse_record(s):
     """解析戰績字串：'30勝25敗' / '33 - 19' / '客12 - 13' / '8 - 2 , 5連勝'"""
@@ -489,38 +494,62 @@ def format_game_text(game, sport='basketball'):
         recommend = f'🔮 推薦：{fav} 獨贏'
 
 
-    # 期望值（EV）計算 — 用分析概率 + 標準賠率估算
+    # 期望值（EV）計算 — 優先用 playsport 實際賠率，否則用標準賠率估算
     ev_text = ''
     if game.get('status') != 'finished':
         try:
+            # 嘗試取得實際賠率
+            real_odds = None
+            if get_game_odds:
+                try:
+                    real_odds = get_game_odds(game)
+                except Exception:
+                    pass
+
             rec_prob = 0
-            # 讓分盤標準賠率 ≈ 1.91（-110）
-            SPREAD_ODDS = 1.91
-            # 大小分標準賠率 ≈ 1.91
-            OU_ODDS = 1.91
+            actual_odds = 0
 
             if rec_type in ('spread_fav', 'spread_dog'):
                 rec_prob = max(hw, aw) / 100 if rec_type == 'spread_fav' else min(hw, aw) / 100 + 0.05
                 rec_prob = min(rec_prob, 0.95)
-                ev = (rec_prob * SPREAD_ODDS - 1) * 100
+                if real_odds and 'spread_odds' in real_odds:
+                    actual_odds = real_odds['spread_odds']
+                else:
+                    actual_odds = 1.91
+                ev = (rec_prob * actual_odds - 1) * 100
+
             elif rec_type in ('over', 'under'):
                 rec_prob = analysis.get('confidence', 50) / 100
-                ev = (rec_prob * OU_ODDS - 1) * 100
-            else:
-                # 獨贏：從讓分估算賠率
-                win_prob = max(hw, aw) / 100
-                if abs_spread >= 10:
-                    est_odds = 1.20
-                elif abs_spread >= 5:
-                    est_odds = 1.45
-                elif abs_spread >= 2:
-                    est_odds = 1.65
+                if real_odds:
+                    if rec_type == 'over' and 'over_odds' in real_odds:
+                        actual_odds = real_odds['over_odds']
+                    elif rec_type == 'under' and 'under_odds' in real_odds:
+                        actual_odds = real_odds['under_odds']
+                    else:
+                        actual_odds = 1.91
                 else:
-                    est_odds = 1.85
-                ev = (win_prob * est_odds - 1) * 100
+                    actual_odds = 1.91
+                ev = (rec_prob * actual_odds - 1) * 100
+
+            else:
+                # 獨贏
+                win_prob = max(hw, aw) / 100
+                if real_odds and 'ml_home' in real_odds and 'ml_away' in real_odds:
+                    actual_odds = real_odds['ml_home'] if fav == home else real_odds['ml_away']
+                else:
+                    if abs_spread >= 10:
+                        actual_odds = 1.20
+                    elif abs_spread >= 5:
+                        actual_odds = 1.45
+                    elif abs_spread >= 2:
+                        actual_odds = 1.65
+                    else:
+                        actual_odds = 1.85
+                ev = (win_prob * actual_odds - 1) * 100
 
             ev_sign = '+' if ev >= 0 else ''
-            ev_text = f'📈 期望值：{ev_sign}{ev:.1f}%'
+            odds_src = '實際' if (real_odds and actual_odds != 1.91) else '估算'
+            ev_text = f'📈 期望值：{ev_sign}{ev:.1f}%（{odds_src}賠率 {actual_odds:.2f}）'
         except Exception:
             pass
 
