@@ -826,8 +826,10 @@ def keep_alive():
     timer.daemon = True
     timer.start()
 
-# 啟動 keep-alive
-keep_alive()
+# 延遲啟動 keep-alive（等待 gunicorn 完成綁定 port 後再 ping）
+_init_timer = threading.Timer(30, keep_alive)
+_init_timer.daemon = True
+_init_timer.start()
 
 
 # ===== 啟動 =====
