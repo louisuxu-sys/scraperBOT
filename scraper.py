@@ -19,7 +19,6 @@ PS_LEAGUES = {
         {'psId': '97', 'name': '日本職籃'},
     ],
     'baseball': [
-        {'psId': '114', 'name': 'WBC經典賽', 'neutral': True},
         {'psId': '1', 'name': 'MLB'},
         {'psId': '2', 'name': '日本職棒'},
         {'psId': '6', 'name': '中華職棒'},
