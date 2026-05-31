@@ -15,6 +15,14 @@ try:
 except ImportError:
     get_game_odds = None
 
+try:
+    from player_data import get_nba_team_injuries, get_mlb_game_pitchers, calc_injury_impact, calc_pitcher_quality
+except ImportError:
+    get_nba_team_injuries = None
+    get_mlb_game_pitchers = None
+    calc_injury_impact = None
+    calc_pitcher_quality = None
+
 
 def parse_record(s):
     """解析戰績字串：'30勝25敗' / '33 - 19' / '客12 - 13' / '8 - 2 , 5連勝'"""
@@ -347,6 +355,71 @@ def generate_analysis(game, sport='basketball'):
                     lines.append('📊 兩隊近期小分趨勢明顯，本場小分機率較高。')
         except Exception as e:
             print(f'[Analyzer] Team history error: {e}')
+
+    # 9. 球員狀態（NBA 傷兵 / MLB 先發投手）
+    if game.get('status') == 'upcoming':
+        try:
+            if is_bball and get_nba_team_injuries:
+                for team_nm, is_home in [(home_name, True), (away_name, False)]:
+                    injuries = get_nba_team_injuries(team_nm)
+                    if not injuries:
+                        continue
+                    out_list = [i for i in injuries if i['status'] == 'Out']
+                    doubtful_list = [i for i in injuries if i['status'] == 'Doubtful']
+                    q_list = [i for i in injuries if i['status'] in ('Questionable', 'Day-To-Day')]
+                    parts = []
+                    if out_list:
+                        names = '、'.join(p['player'] for p in out_list[:4])
+                        parts.append(f'確定缺陣：{names}')
+                    if doubtful_list:
+                        names = '、'.join(p['player'] for p in doubtful_list[:2])
+                        parts.append(f'極可能缺陣：{names}')
+                    if q_list:
+                        names = '、'.join(p['player'] for p in q_list[:2])
+                        parts.append(f'觀察名單：{names}')
+                    if parts:
+                        lines.append(f'【{team_nm} 傷兵】' + '　'.join(parts))
+                    impact = calc_injury_impact(injuries)
+                    if impact <= -8:
+                        lines.append(f'⚠️ {team_nm} 多名主力傷缺，嚴重影響輪換深度！')
+                    elif impact <= -4:
+                        lines.append(f'⚠️ {team_nm} 有重要球員傷缺，陣容完整性受衝擊。')
+                    if is_home:
+                        home_adj += impact   # impact 為負，主隊傷情 → 主隊扣分
+                    else:
+                        away_adj += impact   # 客隊傷情 → 客隊扣分
+
+            elif sport == 'baseball' and game.get('leagueId') == '1' and get_mlb_game_pitchers:
+                game_date = game.get('date', '').replace('-', '')
+                pitchers = get_mlb_game_pitchers(away_name, home_name, game_date)
+                if pitchers:
+                    home_p = pitchers.get('home')
+                    away_p = pitchers.get('away')
+                    pitcher_parts = []
+                    if home_p and home_p.get('name'):
+                        era = home_p.get('era', '')
+                        w, l = home_p.get('wins', ''), home_p.get('losses', '')
+                        rec = f'{w}勝{l}敗 ' if w and l else ''
+                        era_text = f'ERA {era}' if era else 'ERA —'
+                        pitcher_parts.append(f'主：{home_p["name"]}（{rec}{era_text}）')
+                        home_adj += calc_pitcher_quality(home_p)
+                    if away_p and away_p.get('name'):
+                        era = away_p.get('era', '')
+                        w, l = away_p.get('wins', ''), away_p.get('losses', '')
+                        rec = f'{w}勝{l}敗 ' if w and l else ''
+                        era_text = f'ERA {era}' if era else 'ERA —'
+                        pitcher_parts.append(f'客：{away_p["name"]}（{rec}{era_text}）')
+                        away_adj += calc_pitcher_quality(away_p)
+                    if pitcher_parts:
+                        lines.append('【先發投手】' + '　'.join(pitcher_parts))
+                    h_q = calc_pitcher_quality(home_p) if home_p else 0
+                    a_q = calc_pitcher_quality(away_p) if away_p else 0
+                    if h_q - a_q >= 5:
+                        lines.append(f'⚾ {home_name} 先發投手優勢明顯，防守端較有把握。')
+                    elif a_q - h_q >= 5:
+                        lines.append(f'⚾ {away_name} 先發投手更為強勢，客隊投手戰佔優。')
+        except Exception as e:
+            print(f'[Analyzer] Player data factor error: {e}')
 
     # 沒有任何數據
     if not lines:
