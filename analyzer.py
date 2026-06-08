@@ -23,6 +23,14 @@ except ImportError:
     calc_injury_impact = None
     calc_pitcher_quality = None
 
+try:
+    from yahoo_data import get_mlb_game_info, calc_weather_impact, format_weather_text, format_pitcher_result
+except ImportError:
+    get_mlb_game_info = None
+    calc_weather_impact = None
+    format_weather_text = None
+    format_pitcher_result = None
+
 
 def parse_record(s):
     """解析戰績字串：'30勝25敗' / '33 - 19' / '客12 - 13' / '8 - 2 , 5連勝'"""
@@ -115,6 +123,17 @@ def generate_analysis(game, sport='basketball'):
             abs_spread = abs(spread)
             covered = (diff > spread) if spread > 0 else (diff < spread)
             lines.append(f'盤口方面，{fav} 讓 {abs_spread} 分，{"成功過盤" if covered else "未能過盤"}。')
+
+        # Yahoo 賽後投手結果（MLB）
+        if sport == 'baseball' and game.get('leagueId') == '1' and get_mlb_game_info:
+            try:
+                yahoo_info = get_mlb_game_info(away_name, home_name)
+                if yahoo_info and yahoo_info.get('pitchers'):
+                    ptxt = format_pitcher_result(yahoo_info['pitchers'])
+                    if ptxt:
+                        lines.append(ptxt)
+            except Exception:
+                pass
 
         home_win = 70 if diff > 0 else 25
         away_win = (100 - home_win) if is_bball else (60 if diff < 0 else 20)
@@ -418,6 +437,21 @@ def generate_analysis(game, sport='basketball'):
                         lines.append(f'⚾ {home_name} 先發投手優勢明顯，防守端較有把握。')
                     elif a_q - h_q >= 5:
                         lines.append(f'⚾ {away_name} 先發投手更為強勢，客隊投手戰佔優。')
+
+                # Yahoo 球場天氣（賽前/進行中時影響大小分預測）
+                if get_mlb_game_info and expected_total > 0:
+                    try:
+                        yahoo_info = get_mlb_game_info(away_name, home_name)
+                        if yahoo_info and yahoo_info.get('temp_c') is not None:
+                            temp_c = yahoo_info['temp_c']
+                            venue = yahoo_info.get('venue', '')
+                            weather_text = format_weather_text(temp_c, venue)
+                            if weather_text:
+                                lines.append(weather_text)
+                            w_impact = calc_weather_impact(temp_c)
+                            expected_total += w_impact  # 調整預估總分
+                    except Exception:
+                        pass
         except Exception as e:
             print(f'[Analyzer] Player data factor error: {e}')
 
