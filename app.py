@@ -222,9 +222,15 @@ def parse_user_message(raw_text):
     if text in ('主選單', '選單', '返回', '返回主選單'):
         return 'main_menu', None, 0, None
 
-    # 世界盃快捷 → 直接跳到今日足球賽事
+    # 世界盃選單
     if text in ('世界盃', '世足'):
-        return 'list', 'soccer', 0, None
+        return 'world_cup_menu', 'soccer', 0, None
+    if text in ('今日世界盃', '今日世足'):
+        return 'menu_games_events', 'soccer', 0, '足球'
+    if text in ('昨日世界盃', '昨日世足'):
+        return 'menu_games_events', 'soccer', -1, '足球'
+    if text in ('明日世界盃', '明日世足'):
+        return 'menu_games_events', 'soccer', 1, '足球'
 
     # ===== 四層選單系統 =====
     # 格式：「功能 球類 聯賽」
@@ -619,12 +625,22 @@ def health():
 def build_main_menu_qr():
     """第一層：主選單"""
     return [
+        QuickReplyItem(action=MessageAction(label='⚽ 世界盃', text='世界盃')),
         QuickReplyItem(action=MessageAction(label='🏆 今日賽事', text='今日賽事')),
         QuickReplyItem(action=MessageAction(label='📅 明日賽事', text='明日賽事')),
         QuickReplyItem(action=MessageAction(label='📋 昨日賽果', text='昨日賽果')),
         QuickReplyItem(action=MessageAction(label='📊 今日賽果', text='今日賽果')),
-        QuickReplyItem(action=MessageAction(label='⚽ 世界盃', text='世界盃')),
         QuickReplyItem(action=MessageAction(label='💰 儲值序號', text='儲值序號')),
+    ]
+
+
+def build_world_cup_qr():
+    """世界盃日期導航 QR"""
+    return [
+        QuickReplyItem(action=MessageAction(label='⚽ 昨日世界盃', text='昨日世界盃')),
+        QuickReplyItem(action=MessageAction(label='⚽ 今日世界盃', text='今日世界盃')),
+        QuickReplyItem(action=MessageAction(label='⚽ 明日世界盃', text='明日世界盃')),
+        QuickReplyItem(action=MessageAction(label='🏠 主選單', text='返回主選單')),
     ]
 
 
@@ -723,6 +739,14 @@ def handle_message(event):
         )
     elif action == 'help':
         reply = build_help_message()
+    elif action == 'world_cup_menu':
+        reply = (
+            '⚽ FIFA 世界盃 2026\n'
+            '━━━━━━━━━━━━━━━\n'
+            '📅 6/11 開賽\n\n'
+            '👇 選擇查看日期'
+        )
+        qr_items = build_world_cup_qr()
     elif action == 'query_uid':
         reply = handle_query_uid(uid)
     elif action == 'set_admin':
@@ -819,6 +843,13 @@ def handle_message(event):
                     else:
                         result = format_league_games_text(league_games, league_name, sport, display_date)
                         qr = build_game_qr(league_games, cmd_prefix)
+
+                    # 足球賽事：附加世界盃日期導航按鈕
+                    if sport == 'soccer':
+                        wc_nav = build_world_cup_qr()
+                        # 保留場次分析按鈕（去掉原本的主選單按鈕），再加世界盃導航
+                        qr = [item for item in qr if '主選單' not in item.action.text][:9] + wc_nav
+
                     push_result(uid, result, qr)
                 except Exception as e:
                     print(f'[BgGames] error: {e}')
