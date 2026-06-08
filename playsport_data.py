@@ -23,7 +23,11 @@ CACHE_TTL = 300  # 5 分鐘
 SPORT_ALLIANCE = {
     'basketball': '3',
     'baseball': '1',
+    'soccer': '4',     # 世足賽 / 足球
 }
+
+# 足球 predict 頁面用的 alliance ID
+SOCCER_PREDICT_ALLIANCES = ['4', '1']  # 4=世足賽, 1=世界盃(開賽後)
 
 
 def _safe_get(url):
@@ -332,6 +336,136 @@ def get_game_odds(game):
         odds['season_cover_rates'] = battle['season_cover_rates']
 
     return odds if len(odds) > 1 else None
+
+
+# ═══════════════════════════════════════════════════════
+#  4. 足球 predict 頁面 — 取得不讓分賠率與大小分盤口
+# ═══════════════════════════════════════════════════════
+
+def fetch_soccer_predict(gameday='today', alliance_ids=None):
+    """
+    從 playsport.cc predict 頁面爬取足球盤口賠率。
+    gameday: 'today' / 'tomorrow' / 'yesterday'
+    回傳 dict: {(away_zh, home_zh): odds_dict}
+    odds_dict keys: ml_away, ml_home, ml_draw, ou_line, over_odds, under_odds
+    """
+    if alliance_ids is None:
+        alliance_ids = SOCCER_PREDICT_ALLIANCES
+
+    cache_key = f'soccer_predict_{gameday}'
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    result = {}
+    for aid in alliance_ids:
+        url = f'https://www.playsport.cc/predict/games?allianceid={aid}&gameday={gameday}'
+        html = _safe_get(url)
+        if not html:
+            continue
+        games = _parse_soccer_predict_html(html)
+        result.update(games)
+
+    _set_cached(cache_key, result)
+    return result
+
+
+def _parse_soccer_predict_html(html):
+    """
+    解析 predict 頁面的足球盤口資料。
+    以 gameid 為邊界提取整個比賽區塊（避免 rowspan inner table 截斷問題）。
+    """
+    games = {}
+
+    game_ids = re.findall(r'<tr[^>]+gameid="(\d+)"', html)
+    game_ids = list(dict.fromkeys(game_ids))
+
+    for i, gid in enumerate(game_ids):
+        # 以此 gameid 第一次出現到下一個 gameid（或頁尾）作為 block 邊界
+        start = html.find(f'gameid="{gid}"')
+        next_id = game_ids[i + 1] if i + 1 < len(game_ids) else None
+        end = html.find(f'gameid="{next_id}"', start + 10) if next_id else len(html)
+        block = html[start:end]
+
+        # 隊伍名稱
+        away_m = re.search(r'class="secondteam">([^<]+)<', block)
+        home_m = re.search(r'class="(?:winnerteam|firstteam)"[^>]*>(?:<a[^>]*>)?([^<]+?)(?:</a>)?<', block)
+        if not away_m or not home_m:
+            continue
+        away = away_m.group(1).strip()
+        home = home_m.group(1).strip()
+        if not away or not home:
+            continue
+
+        # 賠率提取 ── 用 <!--不讓分*客/主/和--> 和 <!--大小分*大/小--> 做定位錨點
+        ml = {}
+        ou = {}
+
+        for side_label, dict_key in [('客', 'ml_away'), ('主', 'ml_home')]:
+            anchor = f'<!--不讓分*{side_label}-->'
+            idx = block.find(anchor)
+            if idx < 0:
+                continue
+            cell = block[idx:idx + 400]
+            # 賠率：<span>N.NN</span> 格式（無逗號）
+            odds_m = re.search(r'<span>([\d.]+)</span>', cell)
+            if odds_m:
+                try:
+                    ml[dict_key] = float(odds_m.group(1))
+                except ValueError:
+                    pass
+
+        # 和盤在 td-bank-bet01 或 <!--不讓分*和--> 之後
+        for anchor in ['<!--不讓分*和-->', 'td-bank-bet01']:
+            idx = block.find(anchor)
+            if idx >= 0:
+                cell = block[idx:idx + 300]
+                odds_m = re.search(r'<span>([\d.]+)</span>', cell)
+                if odds_m:
+                    try:
+                        ml['ml_draw'] = float(odds_m.group(1))
+                    except ValueError:
+                        pass
+                break
+
+        for side_label, dict_key in [('大', 'over_odds'), ('小', 'under_odds')]:
+            anchor = f'<!--大小分*{side_label}-->'
+            idx = block.find(anchor)
+            if idx < 0:
+                continue
+            cell = block[idx:idx + 400]
+            # 大小分有 line：<strong>2.5</strong><span>, 2.15</span>
+            line_m = re.search(r'<strong>([\d.]+)</strong>', cell)
+            odds_m = re.search(r'<span>,\s*([\d.]+)</span>', cell)
+            if odds_m:
+                try:
+                    ou[dict_key] = float(odds_m.group(1))
+                    if line_m and 'ou_line' not in ou:
+                        ou['ou_line'] = float(line_m.group(1))
+                except ValueError:
+                    pass
+
+        entry = {**ml, **ou}
+        if entry:
+            games[(away, home)] = entry
+
+    return games
+
+
+def get_soccer_game_odds(away_zh, home_zh, gameday='today'):
+    """
+    取得足球場次的實際賠率（不讓分 + 大小分）。
+    回傳 dict 或 None
+    """
+    data = fetch_soccer_predict(gameday)
+    # 精確匹配
+    if (away_zh, home_zh) in data:
+        return data[(away_zh, home_zh)]
+    # 模糊匹配（隊名截斷）
+    for (a, h), odds in data.items():
+        if (away_zh[:3] in a or a[:3] in away_zh) and (home_zh[:3] in h or h[:3] in home_zh):
+            return odds
+    return None
 
 
 if __name__ == '__main__':

@@ -11,9 +11,10 @@ except ImportError:
     get_matchup_history = None
 
 try:
-    from playsport_data import get_game_odds
+    from playsport_data import get_game_odds, get_soccer_game_odds
 except ImportError:
     get_game_odds = None
+    get_soccer_game_odds = None
 
 try:
     from player_data import get_nba_team_injuries, get_mlb_game_pitchers, calc_injury_impact, calc_pitcher_quality
@@ -601,13 +602,51 @@ def format_game_text(game, sport='basketball'):
         recommend = f'🔮 推薦：{fav} 獨贏'
 
 
+    # 足球推薦 — 有真實不讓分賠率時改用獨贏建議
+    soccer_odds = None
+    if sport == 'soccer' and game.get('status') == 'upcoming' and get_soccer_game_odds:
+        try:
+            soccer_odds = get_soccer_game_odds(away, home)
+            if soccer_odds:
+                # 用真實賠率決定推薦方向
+                ml_home = soccer_odds.get('ml_home', 0)
+                ml_away = soccer_odds.get('ml_away', 0)
+                ml_draw = soccer_odds.get('ml_draw', 0)
+                ou_line = soccer_odds.get('ou_line', 0)
+                if hw > aw and hw > 40:
+                    recommend = f'🔮 推薦：{home} 獨贏（賠率 {ml_home}）' if ml_home else f'🔮 推薦：{home} 獨贏'
+                    rec_type = 'win'
+                elif aw > hw and aw > 40:
+                    recommend = f'🔮 推薦：{away} 獨贏（賠率 {ml_away}）' if ml_away else f'🔮 推薦：{away} 獨贏'
+                    rec_type = 'win'
+                elif abs(hw - aw) <= 10 and ml_draw > 0:
+                    recommend = f'🔮 推薦：和局（賠率 {ml_draw}）'
+                    rec_type = 'draw'
+                if ou_line > 0:
+                    # 根據期望進球數給大小分提示
+                    exp_goals = analysis.get('expectedTotal', 0)
+                    if exp_goals > ou_line + 0.5:
+                        recommend += f'　大 {ou_line}'
+                    elif exp_goals < ou_line - 0.5:
+                        recommend += f'　小 {ou_line}'
+        except Exception:
+            pass
+
     # 期望值（EV）計算 — 優先用 playsport 實際賠率，否則用標準賠率估算
     ev_text = ''
     if game.get('status') != 'finished':
         try:
-            # 嘗試取得實際賠率
+            # 嘗試取得實際賠率（足球優先用 predict 頁面）
             real_odds = None
-            if get_game_odds:
+            if sport == 'soccer' and soccer_odds:
+                real_odds = {
+                    'ml_home': soccer_odds.get('ml_home'),
+                    'ml_away': soccer_odds.get('ml_away'),
+                    'ml_draw': soccer_odds.get('ml_draw'),
+                    'over_odds': soccer_odds.get('over_odds'),
+                    'under_odds': soccer_odds.get('under_odds'),
+                }
+            elif get_game_odds:
                 try:
                     real_odds = get_game_odds(game)
                 except Exception:
@@ -638,10 +677,16 @@ def format_game_text(game, sport='basketball'):
                     actual_odds = 1.91
                 ev = (rec_prob * actual_odds - 1) * 100
 
+            elif rec_type == 'draw':
+                # 足球和局
+                draw_prob = analysis.get('draw', 25) / 100
+                actual_odds = real_odds.get('ml_draw', 3.0) if real_odds and real_odds.get('ml_draw') else 3.0
+                ev = (draw_prob * actual_odds - 1) * 100
+
             else:
                 # 獨贏
                 win_prob = max(hw, aw) / 100
-                if real_odds and 'ml_home' in real_odds and 'ml_away' in real_odds:
+                if real_odds and real_odds.get('ml_home') and real_odds.get('ml_away'):
                     actual_odds = real_odds['ml_home'] if fav == home else real_odds['ml_away']
                 else:
                     if abs_spread >= 10:

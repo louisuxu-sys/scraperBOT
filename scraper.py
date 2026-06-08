@@ -213,6 +213,10 @@ def parse_pre_html(html, ps_id, gamedate, league_name):
         # 盤口
         box_start = html.find(f'id="outer-gamebox-{box["id"]}"')
         box_end = html.find('</div><!--outer-gamebox-->', box_start)
+        # 部分聯賽（如足球）沒有 <!--outer-gamebox--> 結束標記，改用下一個 outer-gamebox 作邊界
+        if box_start > -1 and box_end == -1:
+            next_box_start = html.find('id="outer-gamebox-', box_start + 20)
+            box_end = next_box_start if next_box_start > box_start else box_start + 8000
         if box_start > -1 and box_end > -1:
             box_html = html[box_start:box_end]
             sp = re.search(r'data-aheadprice="([^"]*)"', box_html)
@@ -250,8 +254,8 @@ def parse_pre_html(html, ps_id, gamedate, league_name):
         game_status = 'upcoming'
         away_score = None
         home_score = None
-        if box_start > -1 and box_end > -1:
-            box_html_full = html[box_start:box_end]
+        if box_start > -1:
+            box_html_full = html[box_start:box_end] if box_end > box_start else html[box_start:box_start + 8000]
             # 檢查 onbox div 是否可見（開打後顯示）
             onbox_tag = re.search(
                 rf'<div[^>]*id="gamebox-{box["id"]}"(?!-)[^>]*>',
@@ -265,9 +269,11 @@ def parse_pre_html(html, ps_id, gamedate, league_name):
                 onbox_notend = class_m and 'gamebox-notend' in class_m.group(1)
                 if onbox_visible:
                     game_status = 'live' if onbox_notend else 'finished'
-                    # 嘗試從 HTML 取得比分
-                    asr = re.search(rf'id="{box["id"]}_asr"[^>]*>(\d+)<', box_html_full)
-                    hsr = re.search(rf'id="{box["id"]}_hsr"[^>]*>(\d+)<', box_html_full)
+                    # 嘗試從 HTML 取得比分（先找 _big 版，再找一般版）
+                    asr = (re.search(rf'id="{box["id"]}_asr_big"[^>]*>(\d+)<', box_html_full) or
+                           re.search(rf'id="{box["id"]}_asr"[^>]*>(\d+)<', box_html_full))
+                    hsr = (re.search(rf'id="{box["id"]}_hsr_big"[^>]*>(\d+)<', box_html_full) or
+                           re.search(rf'id="{box["id"]}_hsr"[^>]*>(\d+)<', box_html_full))
                     if asr:
                         away_score = int(asr.group(1))
                     if hsr:
