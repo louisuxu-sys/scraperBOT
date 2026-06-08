@@ -139,7 +139,8 @@ def push_result(user_id, reply_text, qr_items):
 SPORT_KEYWORDS = {
     '籃球': 'basketball', 'nba': 'basketball', 'sbl': 'basketball',
     '棒球': 'baseball', 'mlb': 'baseball', '中職': 'baseball', '日職': 'baseball',
-    '足球': 'soccer', '冰球': 'hockey', 'nhl': 'hockey',
+    '足球': 'soccer', '世界盃': 'soccer', '世足': 'soccer',
+    '冰球': 'hockey', 'nhl': 'hockey',
     '網球': 'tennis',
 }
 
@@ -220,6 +221,10 @@ def parse_user_message(raw_text):
     # 主選單
     if text in ('主選單', '選單', '返回', '返回主選單'):
         return 'main_menu', None, 0, None
+
+    # 世界盃快捷 → 直接跳到今日足球賽事
+    if text in ('世界盃', '世足'):
+        return 'list', 'soccer', 0, None
 
     # ===== 四層選單系統 =====
     # 格式：「功能 球類 聯賽」
@@ -618,6 +623,7 @@ def build_main_menu_qr():
         QuickReplyItem(action=MessageAction(label='📅 明日賽事', text='明日賽事')),
         QuickReplyItem(action=MessageAction(label='📋 昨日賽果', text='昨日賽果')),
         QuickReplyItem(action=MessageAction(label='📊 今日賽果', text='今日賽果')),
+        QuickReplyItem(action=MessageAction(label='⚽ 世界盃', text='世界盃')),
         QuickReplyItem(action=MessageAction(label='💰 儲值序號', text='儲值序號')),
     ]
 
