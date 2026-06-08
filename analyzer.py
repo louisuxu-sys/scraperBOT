@@ -573,185 +573,137 @@ def format_game_text(game, sport='basketball'):
         spread_fav = fav
         spread_dog = dog
 
-    # 推薦類型
-    rec_type = 'win'
-    if abs_spread > 0:
-        # 有盤口讓分 → 根據分析判斷推薦讓分方或受讓方
-        if fav == spread_fav and diff > 10:
-            # 分析看好讓分方且信心高 → 推讓分過盤
-            recommend = f'🔮 推薦：{spread_fav} 讓 {abs_spread} 分'
-            rec_type = 'spread_fav'
-        elif fav == spread_dog or diff <= 10:
-            # 分析看好受讓方，或兩隊接近 → 推受讓方
-            recommend = f'🔮 推薦：{spread_dog} 受讓 {abs_spread} 分'
-            rec_type = 'spread_dog'
-        else:
-            recommend = f'🔮 推薦：{spread_fav} 讓 {abs_spread} 分'
-            rec_type = 'spread_fav'
-    elif diff > 15:
-        recommend = f'🔮 推薦：{fav} 獨贏'
-    elif exp_total > 0:
-        total_line = round(exp_total / 5) * 5
-        if analysis.get('confidence', 50) >= 55:
-            recommend = f'🔮 推薦：大 {total_line} 分'
-            rec_type = 'over'
-        else:
-            recommend = f'🔮 推薦：小 {total_line} 分'
-            rec_type = 'under'
-    else:
-        recommend = f'🔮 推薦：{fav} 獨贏'
-
-
-    # 足球推薦 — 有真實不讓分賠率時改用獨贏建議
+    # ─── 取得實際賠率 ────────────────────────────────────────────
     soccer_odds = None
-    if sport == 'soccer' and game.get('status') == 'upcoming' and get_soccer_game_odds:
+    if sport == 'soccer' and game.get('status') != 'finished' and get_soccer_game_odds:
         try:
             soccer_odds = get_soccer_game_odds(away, home)
-            if soccer_odds:
-                # 用真實賠率決定推薦方向
-                ml_home = soccer_odds.get('ml_home', 0)
-                ml_away = soccer_odds.get('ml_away', 0)
-                ml_draw = soccer_odds.get('ml_draw', 0)
-                ou_line = soccer_odds.get('ou_line', 0)
-                if hw > aw and hw > 40:
-                    recommend = f'🔮 推薦：{home} 獨贏（賠率 {ml_home}）' if ml_home else f'🔮 推薦：{home} 獨贏'
-                    rec_type = 'win'
-                elif aw > hw and aw > 40:
-                    recommend = f'🔮 推薦：{away} 獨贏（賠率 {ml_away}）' if ml_away else f'🔮 推薦：{away} 獨贏'
-                    rec_type = 'win'
-                elif abs(hw - aw) <= 10 and ml_draw > 0:
-                    recommend = f'🔮 推薦：和局（賠率 {ml_draw}）'
-                    rec_type = 'draw'
-                if ou_line > 0:
-                    # 根據期望進球數給大小分提示
-                    exp_goals = analysis.get('expectedTotal', 0)
-                    if exp_goals > ou_line + 0.5:
-                        recommend += f'　大 {ou_line}'
-                    elif exp_goals < ou_line - 0.5:
-                        recommend += f'　小 {ou_line}'
         except Exception:
             pass
 
-    # 期望值（EV）計算 — 優先用 playsport 實際賠率，否則用標準賠率估算
-    ev_text = ''
+    real_odds = None
     if game.get('status') != 'finished':
-        try:
-            # 嘗試取得實際賠率（足球優先用 predict 頁面）
-            real_odds = None
-            if sport == 'soccer' and soccer_odds:
-                real_odds = {
-                    'ml_home': soccer_odds.get('ml_home'),
-                    'ml_away': soccer_odds.get('ml_away'),
-                    'ml_draw': soccer_odds.get('ml_draw'),
-                    'over_odds': soccer_odds.get('over_odds'),
-                    'under_odds': soccer_odds.get('under_odds'),
-                }
-            elif get_game_odds:
-                try:
-                    real_odds = get_game_odds(game)
-                except Exception:
-                    pass
+        if sport == 'soccer' and soccer_odds:
+            real_odds = {
+                'ml_home':    soccer_odds.get('ml_home'),
+                'ml_away':    soccer_odds.get('ml_away'),
+                'ml_draw':    soccer_odds.get('ml_draw'),
+                'over_odds':  soccer_odds.get('over_odds'),
+                'under_odds': soccer_odds.get('under_odds'),
+                'total_line': soccer_odds.get('ou_line'),
+            }
+        elif get_game_odds:
+            try:
+                real_odds = get_game_odds(game)
+            except Exception:
+                pass
 
-            rec_prob = 0
-            actual_odds = 0
+    # ─── 三合一推薦 + 個別 EV ────────────────────────────────────
+    is_finished = game.get('status') == 'finished' and game.get('homeScore') is not None
 
-            if rec_type in ('spread_fav', 'spread_dog'):
-                rec_prob = max(hw, aw) / 100 if rec_type == 'spread_fav' else min(hw, aw) / 100 + 0.05
-                rec_prob = min(rec_prob, 0.95)
-                if real_odds and 'spread_odds' in real_odds:
-                    actual_odds = real_odds['spread_odds']
-                else:
-                    actual_odds = 1.91
-                ev = (rec_prob * actual_odds - 1) * 100
+    def _ev_str(prob, odds_val):
+        ev = (prob * odds_val - 1) * 100
+        sign = '+' if ev >= 0 else ''
+        return f'📈 EV {sign}{ev:.1f}%'
 
-            elif rec_type in ('over', 'under'):
-                rec_prob = analysis.get('confidence', 50) / 100
-                if real_odds:
-                    if rec_type == 'over' and 'over_odds' in real_odds:
-                        actual_odds = real_odds['over_odds']
-                    elif rec_type == 'under' and 'under_odds' in real_odds:
-                        actual_odds = real_odds['under_odds']
-                    else:
-                        actual_odds = 1.91
-                else:
-                    actual_odds = 1.91
-                ev = (rec_prob * actual_odds - 1) * 100
+    def _win_odds_est(p):
+        if p >= 0.75: return 1.25
+        if p >= 0.68: return 1.45
+        if p >= 0.60: return 1.65
+        if p >= 0.54: return 1.82
+        return 1.91
 
-            elif rec_type == 'draw':
-                # 足球和局
-                draw_prob = analysis.get('draw', 25) / 100
-                actual_odds = real_odds.get('ml_draw', 3.0) if real_odds and real_odds.get('ml_draw') else 3.0
-                ev = (draw_prob * actual_odds - 1) * 100
+    rec_lines = []
 
-            else:
-                # 獨贏
-                win_prob = max(hw, aw) / 100
-                if real_odds and real_odds.get('ml_home') and real_odds.get('ml_away'):
-                    actual_odds = real_odds['ml_home'] if fav == home else real_odds['ml_away']
-                else:
-                    if abs_spread >= 10:
-                        actual_odds = 1.20
-                    elif abs_spread >= 5:
-                        actual_odds = 1.45
-                    elif abs_spread >= 2:
-                        actual_odds = 1.65
-                    else:
-                        actual_odds = 1.85
-                ev = (win_prob * actual_odds - 1) * 100
-
-            ev_sign = '+' if ev >= 0 else ''
-            ev_text = f'📈 期望值：{ev_sign}{ev:.1f}%'
-        except Exception:
-            pass
-
-    # 推薦過盤標記（依實際盤口判斷）
-    win_mark = ''
-    if game.get('status') == 'finished' and game.get('homeScore') is not None:
-        hs_int = int(game['homeScore'])
-        as_int = int(game['awayScore'])
-        score_diff = hs_int - as_int  # 主隊 - 客隊
-
-        if rec_type == 'spread_fav':
-            # 讓分方過盤：讓分方贏的分數 > 讓分值
-            if spread_fav == home:
-                covered = score_diff > abs_spread
-            else:
-                covered = -score_diff > abs_spread
-        elif rec_type == 'spread_dog':
-            # 受讓方過盤：受讓方輸的分數 < 讓分值（或贏球）
-            if spread_dog == home:
-                covered = (score_diff + abs_spread) > 0
-            else:
-                covered = (-score_diff + abs_spread) > 0
-        else:
-            covered = (fav == home and score_diff > 0) or (fav == away and score_diff < 0)
-
-        if covered:
-            win_mark = ' 🎯✔'
-        else:
-            win_mark = ' ❌'
-
-    is_neutral = game.get('neutral', False)
-    if is_neutral:
-        lines = [
-            f'━━━━━━━━━━━━━━━',
-            f'{status}  {time_str}{win_mark}',
-            f'🔷 {away}',
-            f'📊 {score}',
-            f'🔶 {home}',
-            recommend,
-        ]
+    # ── 1. 獨贏 ──────────────────────────────────────────────────
+    win_side = home if hw >= aw else away
+    win_prob  = max(hw, aw) / 100
+    if real_odds and real_odds.get('ml_home') and real_odds.get('ml_away'):
+        win_odds_used = real_odds['ml_home'] if win_side == home else real_odds['ml_away']
     else:
-        lines = [
-            f'━━━━━━━━━━━━━━━',
-            f'{status}  {time_str}{win_mark}',
-            f'🚌 {away}',
-            f'📊 {score}',
-            f'🏠 {home}',
-            recommend,
-        ]
-    if ev_text:
-        lines.append(ev_text)
+        win_odds_used = _win_odds_est(win_prob)
+
+    if is_finished:
+        hs_int, as_int = int(game['homeScore']), int(game['awayScore'])
+        actual_winner = home if hs_int > as_int else (away if as_int > hs_int else None)
+        mark = '✅' if win_side == actual_winner else ('➖' if actual_winner is None else '❌')
+        rec_lines.append(f'🔮 獨贏：{win_side} {mark}')
+    else:
+        rec_lines.append(f'🔮 獨贏：{win_side}　{_ev_str(win_prob, win_odds_used)}')
+
+    # ── 2. 讓分盤 / 和局（足球）────────────────────────────────
+    if sport == 'soccer':
+        draw_prob  = analysis.get('draw', 20) / 100
+        draw_odds  = (real_odds.get('ml_draw') if real_odds and real_odds.get('ml_draw') else 3.0)
+        if is_finished:
+            hs_int, as_int = int(game['homeScore']), int(game['awayScore'])
+            mark = '✅' if hs_int == as_int else '❌'
+            rec_lines.append(f'🔮 和局：賠率 {draw_odds} {mark}')
+        else:
+            rec_lines.append(f'🔮 和局：賠率 {draw_odds}　{_ev_str(draw_prob, draw_odds)}')
+    elif abs_spread > 0:
+        if diff > 10 and fav == spread_fav:
+            rec_spread   = spread_fav
+            spread_label = f'{spread_fav} 讓{abs_spread:.1f}'
+            cover_prob   = min(win_prob * 0.93, 0.85)
+        else:
+            rec_spread   = spread_dog
+            spread_label = f'{spread_dog} 受讓{abs_spread:.1f}'
+            cover_prob   = min((1 - win_prob) + 0.08, 0.75)
+        sp_odds_used = real_odds.get('spread_odds', 1.91) if real_odds and real_odds.get('spread_odds') else 1.91
+        if is_finished:
+            hs_int, as_int = int(game['homeScore']), int(game['awayScore'])
+            score_diff = hs_int - as_int
+            if rec_spread == spread_fav:
+                covered = (score_diff > abs_spread) if spread_fav == home else (-score_diff > abs_spread)
+            else:
+                covered = (score_diff + abs_spread > 0) if spread_dog == home else (-score_diff + abs_spread > 0)
+            mark = '✅' if covered else '❌'
+            rec_lines.append(f'🔮 讓分：{spread_label} {mark}')
+        else:
+            rec_lines.append(f'🔮 讓分：{spread_label}　{_ev_str(cover_prob, sp_odds_used)}')
+    elif not is_finished:
+        rec_lines.append(f'🔮 讓分：無盤口')
+
+    # ── 3. 大小分 ────────────────────────────────────────────────
+    ou_line_val = 0.0
+    if real_odds and real_odds.get('total_line'):
+        ou_line_val = float(real_odds['total_line'])
+    elif exp_total > 0:
+        ou_line_val = float(round(exp_total / 5) * 5)
+
+    if ou_line_val > 0 and exp_total > 0:
+        dist_pct = abs(exp_total - ou_line_val) / max(ou_line_val, 1)
+        ou_prob  = min(0.50 + dist_pct * 1.5, 0.80)
+        if exp_total >= ou_line_val:
+            ou_side      = '大'
+            ou_odds_used = real_odds.get('over_odds', 1.91) if real_odds and real_odds.get('over_odds') else 1.91
+        else:
+            ou_side      = '小'
+            ou_odds_used = real_odds.get('under_odds', 1.91) if real_odds and real_odds.get('under_odds') else 1.91
+        if is_finished:
+            hs_int, as_int = int(game['homeScore']), int(game['awayScore'])
+            total_score = hs_int + as_int
+            hit = (ou_side == '大' and total_score > ou_line_val) or (ou_side == '小' and total_score < ou_line_val)
+            mark = '✅' if hit else '❌'
+            rec_lines.append(f'🔮 大小：{ou_side} {ou_line_val:g} {mark}')
+        else:
+            rec_lines.append(f'🔮 大小：{ou_side} {ou_line_val:g}　{_ev_str(ou_prob, ou_odds_used)}')
+    elif not is_finished:
+        rec_lines.append(f'🔮 大小：數據不足')
+
+    # ─── 組合輸出 ────────────────────────────────────────────────
+    is_neutral = game.get('neutral', False)
+    prefix = '🔷' if is_neutral else '🚌'
+    suffix = '🔶' if is_neutral else '🏠'
+    lines = [
+        f'━━━━━━━━━━━━━━━',
+        f'{status}  {time_str}',
+        f'{prefix} {away}',
+        f'📊 {score}',
+        f'{suffix} {home}',
+    ]
+    lines.extend(rec_lines)
     return '\n'.join(lines)
 
 
