@@ -434,14 +434,28 @@ def _parse_soccer_predict_html(html):
             if idx < 0:
                 continue
             cell = block[idx:idx + 400]
-            # 大小分有 line：<strong>2.5</strong><span>, 2.15</span>
-            line_m = re.search(r'<strong>([\d.]+)</strong>', cell)
-            odds_m = re.search(r'<span>,\s*([\d.]+)</span>', cell)
+            # 大小分有 line：<strong>2.5</strong><span>, 2.15</span>（逗號可選）
+            line_m = re.search(r'<strong[^>]*>([\d.]+)</strong>', cell)
+            odds_m = (re.search(r'<span[^>]*>,\s*([\d.]+)\s*</span>', cell) or
+                      re.search(r'<span[^>]*>\s*(1\.[3-9]\d|2\.[0-4]\d)\s*</span>', cell))
             if odds_m:
                 try:
                     ou[dict_key] = float(odds_m.group(1))
                     if line_m and 'ou_line' not in ou:
                         ou['ou_line'] = float(line_m.group(1))
+                except ValueError:
+                    pass
+
+        # 若 comment 方式未抓到 ou_line，嘗試 td-bank-bet02 class 備援
+        if 'ou_line' not in ou:
+            ou_td_m = re.search(
+                r'td-bank-bet02[^>]*>[\s\S]*?<strong[^>]*>([\d.]+)</strong>[\s\S]*?<span[^>]*>,?\s*([\d.]+)',
+                block
+            )
+            if ou_td_m:
+                try:
+                    ou['ou_line'] = float(ou_td_m.group(1))
+                    ou.setdefault('over_odds', float(ou_td_m.group(2)))
                 except ValueError:
                     pass
 

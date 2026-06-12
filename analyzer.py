@@ -3,6 +3,7 @@ AI 分析引擎（規則式）
 移植自 sports-analysis.html 的 generateAnalysis 函數
 """
 import re
+import math
 
 try:
     from team_history import fetch_team_history, get_matchup_history
@@ -31,6 +32,16 @@ except ImportError:
     calc_weather_impact = None
     format_weather_text = None
     format_pitcher_result = None
+
+
+def _poisson_prob(k, lam):
+    """泊松概率 P(X=k | lambda=lam)"""
+    if k < 0 or lam <= 0:
+        return 0.0
+    try:
+        return (lam ** k * math.exp(-lam)) / math.factorial(k)
+    except (OverflowError, ValueError):
+        return 0.0
 
 
 def parse_record(s):
@@ -631,16 +642,29 @@ def format_game_text(game, sport='basketball'):
     else:
         rec_lines.append(f'🔮 獨贏：{win_side}　{_ev_str(win_prob, win_odds_used)}')
 
-    # ── 2. 讓分盤 / 和局（足球）────────────────────────────────
+    # ── 2. 讓分盤（足球用 Asian handicap）──────────────────────
     if sport == 'soccer':
-        draw_prob  = analysis.get('draw', 20) / 100
-        draw_odds  = (real_odds.get('ml_draw') if real_odds and real_odds.get('ml_draw') else 3.0)
+        if abs_spread > 0:
+            spread_label = f'{spread_fav} 讓{abs_spread:g}球'
+            cover_prob = min(win_prob * 0.90, 0.80)
+            is_home_cover = (spread_fav == home)
+        else:
+            spread_label = f'{win_side} 讓0球'
+            cover_prob = win_prob * 0.88
+            is_home_cover = (win_side == home)
+        sp_odds_used = (real_odds.get('spread_odds', 1.88)
+                        if real_odds and real_odds.get('spread_odds') else 1.88)
         if is_finished:
             hs_int, as_int = int(game['homeScore']), int(game['awayScore'])
-            mark = '✅' if hs_int == as_int else '❌'
-            rec_lines.append(f'🔮 和局：賠率 {draw_odds} {mark}')
+            sd = hs_int - as_int
+            if abs_spread > 0:
+                mark = '✅' if (sd > abs_spread if is_home_cover else -sd > abs_spread) else '❌'
+            else:
+                mark = ('✅' if (sd > 0 if is_home_cover else sd < 0)
+                        else ('➖' if sd == 0 else '❌'))
+            rec_lines.append(f'🔮 讓分：{spread_label} {mark}')
         else:
-            rec_lines.append(f'🔮 和局：賠率 {draw_odds}　{_ev_str(draw_prob, draw_odds)}')
+            rec_lines.append(f'🔮 讓分：{spread_label}　{_ev_str(cover_prob, sp_odds_used)}')
     elif abs_spread > 0:
         if diff > 10 and fav == spread_fav:
             rec_spread   = spread_fav
@@ -672,15 +696,24 @@ def format_game_text(game, sport='basketball'):
     elif exp_total > 0:
         ou_line_val = float(round(exp_total / 5) * 5)
 
+    # 足球：確保永遠有 ou_line_val 和 exp_total（避免「數據不足」）
+    if sport == 'soccer':
+        if ou_line_val == 0:
+            ou_line_val = 2.5  # 世界盃/國際賽預設盤口線
+        if exp_total == 0:
+            draw_pct = analysis.get('draw', 25)
+            lean = -0.25 if draw_pct > 28 else (0.1 if diff > 25 else -0.15)
+            exp_total = ou_line_val + lean
+
     if ou_line_val > 0 and exp_total > 0:
         dist_pct = abs(exp_total - ou_line_val) / max(ou_line_val, 1)
         ou_prob  = min(0.50 + dist_pct * 1.5, 0.80)
         if exp_total >= ou_line_val:
             ou_side      = '大'
-            ou_odds_used = real_odds.get('over_odds', 1.91) if real_odds and real_odds.get('over_odds') else 1.91
+            ou_odds_used = real_odds.get('over_odds', 1.88) if real_odds and real_odds.get('over_odds') else 1.88
         else:
             ou_side      = '小'
-            ou_odds_used = real_odds.get('under_odds', 1.91) if real_odds and real_odds.get('under_odds') else 1.91
+            ou_odds_used = real_odds.get('under_odds', 1.88) if real_odds and real_odds.get('under_odds') else 1.88
         if is_finished:
             hs_int, as_int = int(game['homeScore']), int(game['awayScore'])
             total_score = hs_int + as_int
@@ -691,6 +724,29 @@ def format_game_text(game, sport='basketball'):
             rec_lines.append(f'🔮 大小：{ou_side} {ou_line_val:g}　{_ev_str(ou_prob, ou_odds_used)}')
     elif not is_finished:
         rec_lines.append(f'🔮 大小：數據不足')
+
+    # ── 4. 波膽（足球 Poisson 預測）─────────────────────────────
+    if sport == 'soccer':
+        sox_exp = exp_total if exp_total > 0 else 2.3
+        tw = hw + aw
+        lam_h = sox_exp * hw / tw if tw > 0 else sox_exp / 2
+        lam_a = sox_exp * aw / tw if tw > 0 else sox_exp / 2
+        ps_best = (1, 0)
+        ps_best_p = 0.0
+        for bhg in range(6):
+            for bag in range(6):
+                p = _poisson_prob(bhg, lam_h) * _poisson_prob(bag, lam_a)
+                if p > ps_best_p:
+                    ps_best_p = p
+                    ps_best = (bhg, bag)
+        bhg, bag = ps_best
+        if is_finished:
+            hs_int, as_int = int(game['homeScore']), int(game['awayScore'])
+            mark = '✅' if hs_int == bhg and as_int == bag else '❌'
+            rec_lines.append(f'🔮 波膽：主{bhg}客{bag} {mark}')
+        else:
+            prob_pct = round(ps_best_p * 100, 1)
+            rec_lines.append(f'🔮 波膽：主{bhg}客{bag}　({prob_pct}%)')
 
     # ─── 組合輸出 ────────────────────────────────────────────────
     is_neutral = game.get('neutral', False)
