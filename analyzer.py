@@ -693,18 +693,28 @@ def format_game_text(game, sport='basketball'):
     ou_line_val = 0.0
     if real_odds and real_odds.get('total_line'):
         ou_line_val = float(real_odds['total_line'])
-    elif exp_total > 0 and sport != 'soccer':
-        # 籃球捨入公式（每 5 分一檔），足球不適用
-        ou_line_val = float(round(exp_total / 5) * 5)
+    elif exp_total > 0:
+        if sport == 'basketball':
+            ou_line_val = float(round(exp_total / 5) * 5)   # NBA 每 5 分一檔
+        elif sport == 'baseball':
+            ou_line_val = round(exp_total * 2) / 2           # MLB 每 0.5 分一檔
+        # soccer 由下方 fallback 處理
 
-    # 足球 sanity check + fallback（避免抓到累計統計或奇怪數值）
+    # 棒球 sanity check（避免賽季累計數被誤用）
+    if sport == 'baseball':
+        if exp_total > 20:
+            exp_total = 0
+        if ou_line_val > 15 or (0 < ou_line_val < 4.0):
+            ou_line_val = 0
+
+    # 足球 sanity check + fallback
     if sport == 'soccer':
-        if exp_total > 6:     # 每場進球不可能 > 6（Season total 被誤抓）
+        if exp_total > 6:
             exp_total = 0
         if ou_line_val > 5.5 or (0 < ou_line_val < 1.0):
-            ou_line_val = 0   # 超出合理區間，丟棄
+            ou_line_val = 0
         if ou_line_val == 0:
-            ou_line_val = 2.5  # 世界盃/國際賽預設盤口線
+            ou_line_val = 2.5
         if exp_total == 0:
             draw_pct = analysis.get('draw', 25)
             lean = -0.25 if draw_pct > 28 else (0.1 if diff > 25 else -0.15)
@@ -712,7 +722,11 @@ def format_game_text(game, sport='basketball'):
 
     if ou_line_val > 0 and exp_total > 0:
         dist_pct = abs(exp_total - ou_line_val) / max(ou_line_val, 1)
-        ou_prob  = min(0.50 + dist_pct * 1.5, 0.80)
+        # 各運動機率斜率：籃球總分大、相對偏差小 → 斜率可大；棒球/足球相反
+        if sport == 'basketball':
+            ou_prob = min(0.50 + dist_pct * 1.5, 0.75)
+        else:
+            ou_prob = min(0.50 + dist_pct * 0.5, 0.65)
         if exp_total >= ou_line_val:
             ou_side      = '大'
             ou_odds_used = real_odds.get('over_odds', 1.88) if real_odds and real_odds.get('over_odds') else 1.88
