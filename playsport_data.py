@@ -446,18 +446,11 @@ def _parse_soccer_predict_html(html):
                 except ValueError:
                     pass
 
-        # 若 comment 方式未抓到 ou_line，嘗試 td-bank-bet02 class 備援
-        if 'ou_line' not in ou:
-            ou_td_m = re.search(
-                r'td-bank-bet02[^>]*>[\s\S]*?<strong[^>]*>([\d.]+)</strong>[\s\S]*?<span[^>]*>,?\s*([\d.]+)',
-                block
-            )
-            if ou_td_m:
-                try:
-                    ou['ou_line'] = float(ou_td_m.group(1))
-                    ou.setdefault('over_odds', float(ou_td_m.group(2)))
-                except ValueError:
-                    pass
+        # 對解析到的 ou_line 做合理性檢查（足球 OU 通常在 1.5~5.5）
+        if 'ou_line' in ou and (ou['ou_line'] > 5.5 or ou['ou_line'] < 1.0):
+            del ou['ou_line']
+            ou.pop('over_odds', None)
+            ou.pop('under_odds', None)
 
         entry = {**ml, **ou}
         if entry:

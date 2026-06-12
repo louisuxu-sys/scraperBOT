@@ -693,11 +693,16 @@ def format_game_text(game, sport='basketball'):
     ou_line_val = 0.0
     if real_odds and real_odds.get('total_line'):
         ou_line_val = float(real_odds['total_line'])
-    elif exp_total > 0:
+    elif exp_total > 0 and sport != 'soccer':
+        # 籃球捨入公式（每 5 分一檔），足球不適用
         ou_line_val = float(round(exp_total / 5) * 5)
 
-    # 足球：確保永遠有 ou_line_val 和 exp_total（避免「數據不足」）
+    # 足球 sanity check + fallback（避免抓到累計統計或奇怪數值）
     if sport == 'soccer':
+        if exp_total > 6:     # 每場進球不可能 > 6（Season total 被誤抓）
+            exp_total = 0
+        if ou_line_val > 5.5 or (0 < ou_line_val < 1.0):
+            ou_line_val = 0   # 超出合理區間，丟棄
         if ou_line_val == 0:
             ou_line_val = 2.5  # 世界盃/國際賽預設盤口線
         if exp_total == 0:
