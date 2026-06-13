@@ -40,6 +40,42 @@ def _set_bearer_jwt(new_jwt):
     global _bearer_jwt
     with _bearer_jwt_lock:
         _bearer_jwt = new_jwt
+    _save_jwt_to_firebase(new_jwt)
+
+# ── Firebase JWT 持久化 ───────────────────────────────────────
+
+def _save_jwt_to_firebase(jwt):
+    """把最新 JWT 存到 Firebase，重啟後可自動恢復。"""
+    try:
+        from membership import _init_firebase, _firebase_ok, db
+        _init_firebase()
+        if _firebase_ok and db:
+            db.collection('system').document('callmeares_jwt').set(
+                {'jwt': jwt, 'updated_at': __import__('time').time()})
+    except Exception as e:
+        print(f"[Callmeares] Firebase JWT 儲存失敗: {e}")
+
+def _load_jwt_from_firebase():
+    """啟動時從 Firebase 載入上次儲存的 JWT。"""
+    try:
+        from membership import _init_firebase, _firebase_ok, db
+        _init_firebase()
+        if _firebase_ok and db:
+            doc = db.collection('system').document('callmeares_jwt').get()
+            if doc.exists:
+                jwt = doc.to_dict().get('jwt', '')
+                if jwt and len(jwt) > 50:
+                    global _bearer_jwt
+                    with _bearer_jwt_lock:
+                        _bearer_jwt = jwt
+                    print("[Callmeares] ✅ 從 Firebase 載入 JWT")
+                    return True
+    except Exception as e:
+        print(f"[Callmeares] Firebase JWT 載入失敗: {e}")
+    return False
+
+# 啟動時自動載入
+_load_jwt_from_firebase()
 
 URL_TOKEN  = os.environ.get("CALLMEARES_URL_TOKEN", "36079777.TlQNDSnVVlsctCtVhMAchjV.821")
 LOGIN_NAME = os.environ.get("CALLMEARES_LOGIN",     "6979e92ba82ee28a5b9392912e9f30a5")
