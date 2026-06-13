@@ -652,11 +652,16 @@ def update_jwt():
         return resp
 
     _set_bearer_jwt(jwt)
+
+    # 瀏覽器模式：停止 bot 的 keepalive，讓瀏覽器自己維持 session
+    from callmeares_data import _stop_keepalive
+    _stop_keepalive()
+
     tok = _refresh_gql_token()
 
     from flask import jsonify, make_response
     if tok:
-        resp = make_response(jsonify({'ok': True, 'message': 'JWT 已更新，GQL token 刷新成功'}))
+        resp = make_response(jsonify({'ok': True, 'message': 'JWT 已更新，GQL token 刷新成功（瀏覽器模式）'}))
     else:
         resp = make_response(jsonify({'ok': False, 'message': 'JWT 已設定，但 GQL token 刷新失敗'}), 500)
     resp.headers['Access-Control-Allow-Origin'] = '*'

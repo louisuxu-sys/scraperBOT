@@ -169,23 +169,37 @@ def _renew_bearer_jwt():
 
 def _keepalive_loop():
     last_renewal = time.time()
-    while True:
+    while _keepalive_enabled:
         time.sleep(HEARTBEAT_INTERVAL)
+        if not _keepalive_enabled:
+            break
         _send_heartbeat()
         if time.time() - last_renewal >= RENEWAL_INTERVAL:
             if _renew_bearer_jwt():
                 last_renewal = time.time()
 
 
+_keepalive_enabled = True   # False = 瀏覽器模式，不發心跳
+
+
 def _start_keepalive():
-    """啟動 keepalive daemon thread（僅啟動一次）。"""
+    """啟動 keepalive daemon thread（僅啟動一次，且未被停用時）。"""
     global _keepalive_thread
+    if not _keepalive_enabled:
+        return
     with _keepalive_lock:
         if _keepalive_thread is None or not _keepalive_thread.is_alive():
             _keepalive_thread = threading.Thread(
                 target=_keepalive_loop, daemon=True, name="callmeares-keepalive")
             _keepalive_thread.start()
             print("[Callmeares] Session keepalive 已啟動")
+
+
+def _stop_keepalive():
+    """停止 keepalive（切換到瀏覽器模式：由瀏覽器維持 session）。"""
+    global _keepalive_enabled
+    _keepalive_enabled = False
+    print("[Callmeares] keepalive 已停止（瀏覽器模式）")
 
 # ── GraphQL persisted query hashes ───────────────────────────
 HASH_EVENTS = "abe0a8efb3ed9c1f7f39914e114b421f08e88147f796370ff79aad020ba41589"
