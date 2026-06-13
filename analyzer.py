@@ -755,9 +755,23 @@ def format_game_text(game, sport='basketball'):
                 sox_exp = float(real_odds['total_line'])
             else:
                 sox_exp = 2.5
-            tw = hw + aw
-            lam_h = sox_exp * hw / tw if tw > 0 else sox_exp / 2
-            lam_a = sox_exp * aw / tw if tw > 0 else sox_exp / 2
+
+            # 用 1x2 賠率換算隱含機率（比分析師估算更準確）
+            if real_odds and real_odds.get('ml_home') and real_odds.get('ml_away'):
+                raw_h = 1.0 / real_odds['ml_home']
+                raw_a = 1.0 / real_odds['ml_away']
+                raw_d = (1.0 / real_odds['ml_draw']) if real_odds.get('ml_draw') else 0
+                tot = raw_h + raw_d + raw_a
+                p_home = raw_h / tot if tot > 0 else 0.5
+                p_away = raw_a / tot if tot > 0 else 0.5
+            else:
+                tw_sum = hw + aw
+                p_home = hw / tw_sum if tw_sum > 0 else 0.5
+                p_away = 1.0 - p_home
+
+            tw_pa = p_home + p_away
+            lam_h = sox_exp * p_home / tw_pa if tw_pa > 0 else sox_exp / 2
+            lam_a = sox_exp * p_away / tw_pa if tw_pa > 0 else sox_exp / 2
             ps_best = (1, 0)
             ps_best_p = 0.0
             for bhg in range(6):
