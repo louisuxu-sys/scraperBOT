@@ -620,6 +620,49 @@ def health():
     return {'status': 'ok', 'service': 'sportiq-linebot', 'version': 'v2.1'}
 
 
+@app.route('/admin/update-jwt', methods=['POST', 'GET', 'OPTIONS'])
+def update_jwt():
+    """接收瀏覽器 console/bookmarklet 傳來的新 JWT，更新 callmeares session。"""
+    # CORS preflight
+    if request.method == 'OPTIONS':
+        from flask import make_response
+        resp = make_response('', 204)
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        resp.headers['Access-Control-Allow-Methods'] = 'POST, GET, OPTIONS'
+        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        return resp
+
+    try:
+        from callmeares_data import _set_bearer_jwt, _refresh_gql_token
+    except ImportError:
+        return {'ok': False, 'error': 'callmeares_data not loaded'}, 500
+
+    jwt = None
+    if request.method == 'GET':
+        jwt = request.args.get('jwt', '').strip()
+    else:
+        data = request.get_json(silent=True) or {}
+        jwt = (data.get('jwt') or request.form.get('jwt', '')).strip()
+
+    if not jwt or len(jwt) < 50:
+        result = {'ok': False, 'error': 'invalid jwt'}
+        from flask import jsonify, make_response
+        resp = make_response(jsonify(result), 400)
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        return resp
+
+    _set_bearer_jwt(jwt)
+    tok = _refresh_gql_token()
+
+    from flask import jsonify, make_response
+    if tok:
+        resp = make_response(jsonify({'ok': True, 'message': 'JWT 已更新，GQL token 刷新成功'}))
+    else:
+        resp = make_response(jsonify({'ok': False, 'message': 'JWT 已設定，但 GQL token 刷新失敗'}), 500)
+    resp.headers['Access-Control-Allow-Origin'] = '*'
+    return resp
+
+
 # ===== Quick Reply 階層選單 =====
 
 def build_main_menu_qr():

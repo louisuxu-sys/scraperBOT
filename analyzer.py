@@ -12,10 +12,10 @@ except ImportError:
     get_matchup_history = None
 
 try:
-    from playsport_data import get_game_odds, get_soccer_game_odds
+    from callmeares_data import get_game_odds, get_odds_alert
 except ImportError:
     get_game_odds = None
-    get_soccer_game_odds = None
+    get_odds_alert = None
 
 try:
     from player_data import get_nba_team_injuries, get_mlb_game_pitchers, calc_injury_impact, calc_pitcher_quality
@@ -584,30 +584,29 @@ def format_game_text(game, sport='basketball'):
         spread_fav = fav
         spread_dog = dog
 
-    # ─── 取得實際賠率 ────────────────────────────────────────────
-    soccer_odds = None
-    if sport == 'soccer' and game.get('status') != 'finished' and get_soccer_game_odds:
+    # ─── 取得實際賠率（callmeares）────────────────────────────────
+    # live/finished → 回傳凍結賽前賠率；upcoming → 即時拉取
+    real_odds = None
+    if get_game_odds:
         try:
-            soccer_odds = get_soccer_game_odds(away, home)
+            _g = dict(game)
+            _g['_sport'] = sport
+            real_odds = get_game_odds(_g)
         except Exception:
             pass
 
-    real_odds = None
-    if game.get('status') != 'finished':
-        if sport == 'soccer' and soccer_odds:
-            real_odds = {
-                'ml_home':    soccer_odds.get('ml_home'),
-                'ml_away':    soccer_odds.get('ml_away'),
-                'ml_draw':    soccer_odds.get('ml_draw'),
-                'over_odds':  soccer_odds.get('over_odds'),
-                'under_odds': soccer_odds.get('under_odds'),
-                'total_line': soccer_odds.get('ou_line'),
-            }
-        elif get_game_odds:
-            try:
-                real_odds = get_game_odds(game)
-            except Exception:
-                pass
+    # callmeares 盤口覆蓋 livescore 的讓分方向（更精確）
+    if real_odds and real_odds.get('spread_val') is not None:
+        spread_val  = real_odds['spread_val']
+        abs_spread  = abs(spread_val)
+        has_spread  = spread_val != 0
+        is_unsigned = False
+        if spread_val <= 0:
+            spread_fav = home
+            spread_dog = away
+        else:
+            spread_fav = away
+            spread_dog = home
 
     # ─── 三合一推薦 + 個別 EV ────────────────────────────────────
     is_finished = game.get('status') == 'finished' and game.get('homeScore') is not None
@@ -713,9 +712,10 @@ def format_game_text(game, sport='basketball'):
             exp_total = 0
         if ou_line_val > 5.5 or (0 < ou_line_val < 1.0):
             ou_line_val = 0
-        if ou_line_val == 0:
+        # 只有真實賠率存在時才補 2.5 fallback；否則顯示「數據不足」
+        if ou_line_val == 0 and real_odds is not None:
             ou_line_val = 2.5
-        if exp_total == 0:
+        if exp_total == 0 and ou_line_val > 0:
             draw_pct = analysis.get('draw', 25)
             lean = -0.25 if draw_pct > 28 else (0.1 if diff > 25 else -0.15)
             exp_total = ou_line_val + lean
@@ -746,26 +746,45 @@ def format_game_text(game, sport='basketball'):
 
     # ── 4. 波膽（足球 Poisson 預測）─────────────────────────────
     if sport == 'soccer':
-        sox_exp = exp_total if exp_total > 0 else 2.3
-        tw = hw + aw
-        lam_h = sox_exp * hw / tw if tw > 0 else sox_exp / 2
-        lam_a = sox_exp * aw / tw if tw > 0 else sox_exp / 2
-        ps_best = (1, 0)
-        ps_best_p = 0.0
-        for bhg in range(6):
-            for bag in range(6):
-                p = _poisson_prob(bhg, lam_h) * _poisson_prob(bag, lam_a)
-                if p > ps_best_p:
-                    ps_best_p = p
-                    ps_best = (bhg, bag)
-        bhg, bag = ps_best
-        if is_finished:
-            hs_int, as_int = int(game['homeScore']), int(game['awayScore'])
-            mark = '✅' if hs_int == bhg and as_int == bag else '❌'
-            rec_lines.append(f'🔮 波膽：主{bhg}客{bag} {mark}')
+        # 有真實賠率（1x2）或分析預測總分才計算；否則顯示「數據不足」
+        has_soccer_data = (real_odds is not None) or (exp_total > 0)
+        if has_soccer_data or is_finished:
+            if exp_total > 0:
+                sox_exp = exp_total
+            elif real_odds and real_odds.get('total_line'):
+                sox_exp = float(real_odds['total_line'])
+            else:
+                sox_exp = 2.5
+            tw = hw + aw
+            lam_h = sox_exp * hw / tw if tw > 0 else sox_exp / 2
+            lam_a = sox_exp * aw / tw if tw > 0 else sox_exp / 2
+            ps_best = (1, 0)
+            ps_best_p = 0.0
+            for bhg in range(6):
+                for bag in range(6):
+                    p = _poisson_prob(bhg, lam_h) * _poisson_prob(bag, lam_a)
+                    if p > ps_best_p:
+                        ps_best_p = p
+                        ps_best = (bhg, bag)
+            bhg, bag = ps_best
+            if is_finished:
+                hs_int, as_int = int(game['homeScore']), int(game['awayScore'])
+                mark = '✅' if hs_int == bhg and as_int == bag else '❌'
+                rec_lines.append(f'🔮 波膽：主{bhg}客{bag} {mark}')
+            else:
+                prob_pct = round(ps_best_p * 100, 1)
+                rec_lines.append(f'🔮 波膽：主{bhg}客{bag}　({prob_pct}%)')
         else:
-            prob_pct = round(ps_best_p * 100, 1)
-            rec_lines.append(f'🔮 波膽：主{bhg}客{bag}　({prob_pct}%)')
+            rec_lines.append('🔮 波膽：數據不足')
+
+    # 賽前盤口異動警示（只對 upcoming 顯示）
+    if game.get('status') == 'upcoming' and get_odds_alert:
+        try:
+            alert = get_odds_alert(game)
+            if alert:
+                rec_lines.append(alert)
+        except Exception:
+            pass
 
     # ─── 組合輸出 ────────────────────────────────────────────────
     is_neutral = game.get('neutral', False)
