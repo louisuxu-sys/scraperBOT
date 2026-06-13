@@ -114,8 +114,8 @@ GQL_TOKEN_TTL = 3600  # 1 小時重新換一次
 
 
 def _refresh_gql_token():
-    """用 Bearer JWT 向 getOddsApiToken 換取 GQL token，成功後啟動 keepalive。
-    若 JWT 失效（errorCode 非 0）則觸發 Playwright 自動重新登入。
+    """用 Bearer JWT 向 getOddsApiToken 換取 GQL token。
+    注意：不啟動 keepalive（session 由瀏覽器負責維持）。
     """
     global _gql_token, _gql_token_ts
     try:
@@ -125,11 +125,9 @@ def _refresh_gql_token():
             _gql_token    = data["result"]
             _gql_token_ts = time.time()
             print("[Callmeares] GQL token 刷新成功")
-            _start_keepalive()
             return _gql_token
         else:
-            print(f"[Callmeares] GQL token 刷新失敗: {data}，嘗試自動重新登入")
-            return _try_auto_login_then_refresh()
+            print(f"[Callmeares] GQL token 刷新失敗: {data}")
     except Exception as e:
         print(f"[Callmeares] getOddsApiToken error: {e}")
     return None
