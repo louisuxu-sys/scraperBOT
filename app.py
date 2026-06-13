@@ -668,6 +668,29 @@ def update_jwt():
     return resp
 
 
+@app.route('/debug/soccer-odds')
+def debug_soccer_odds():
+    """診斷足球賠率快取，確認 OU 資料是否存在"""
+    try:
+        from callmeares_data import _get_sport_odds, _odds_cache
+        odds = _get_sport_odds('soccer')
+        result = []
+        for (h, a), v in list(odds.items())[:15]:
+            result.append({
+                'home': h, 'away': a,
+                'spread_val':  v.get('spread_val'),
+                'total_line':  v.get('total_line'),
+                'over_odds':   v.get('over_odds'),
+                'under_odds':  v.get('under_odds'),
+                'ml_home':     v.get('ml_home'),
+                'ml_away':     v.get('ml_away'),
+            })
+        from flask import jsonify
+        return jsonify({'count': len(odds), 'sample': result})
+    except Exception as e:
+        return {'error': str(e)}, 500
+
+
 # ===== Quick Reply 階層選單 =====
 
 def build_main_menu_qr():
